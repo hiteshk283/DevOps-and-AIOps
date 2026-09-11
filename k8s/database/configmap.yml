@@ -1,0 +1,237 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: health-insurance
+  labels:
+    app: postgres
+data:
+  10-create-databases.sh: |
+    #!/bin/bash
+    set -e
+
+    create_database() {
+        local db_name=$1
+        echo "Creating database: $db_name"
+        psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+            CREATE DATABASE $db_name;
+            GRANT ALL PRIVILEGES ON DATABASE $db_name TO $POSTGRES_USER;
+    EOSQL
+    }
+
+    create_database auth_db
+    create_database policies_db
+    create_database claims_db
+    create_database members_db
+
+    echo "All Health Insurance databases created successfully!"
+
+  20-init-schema.sql: |
+    -- =============================================================================
+    -- AUTH DATABASE INITIALIZATION
+    -- =============================================================================
+    \c auth_db;
+
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        first_name VARCHAR(100) NOT NULL,
+        last_name VARCHAR(100) NOT NULL,
+        role VARCHAR(50) DEFAULT 'member',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Seed users (password: Password123! hashed with bcrypt)
+    INSERT INTO users (email, password_hash, first_name, last_name, role)
+    VALUES 
+    ('john.doe@example.com', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'John', 'Doe', 'member'),
+    ('sarah.smith@example.com', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'Sarah', 'Smith', 'member'),
+    ('admin@healthshield.com', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'System', 'Admin', 'admin')
+    ON CONFLICT (email) DO NOTHING;
+
+    -- =============================================================================
+    -- POLICIES DATABASE INITIALIZATION
+    -- =============================================================================
+    \c policies_db;
+
+    CREATE TABLE IF NOT EXISTS policies (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(50) UNIQUE NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        tier VARCHAR(50) NOT NULL,
+        monthly_premium NUMERIC(10, 2) NOT NULL,
+        annual_deductible NUMERIC(10, 2) NOT NULL,
+        max_coverage NUMERIC(12, 2) NOT NULL,
+        copay_percent INTEGER NOT NULL,
+        network_type VARCHAR(50) NOT NULL,
+        description TEXT,
+        features JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO policies (code, name, tier, monthly_premium, annual_deductible, max_coverage, copay_percent, network_type, description, features)
+    VALUES 
+    (
+        'POL-BRZ-01',
+        'Essential Care Bronze',
+        'Bronze',
+        149.00,
+        6500.00,
+        250000.00,
+        40,
+        'HMO',
+        'Affordable core coverage designed for emergencies, preventive checkups, and catastrophic care.',
+        '["100% Preventive Care Covered", "Free Annual Wellness Exam", "Generic Prescriptions $15", "Virtual Urgent Care 24/7"]'::jsonb
+    ),
+    (
+        'POL-SLV-02',
+        'Standard Shield Silver',
+        'Silver',
+        289.00,
+        3500.00,
+        500000.00,
+        30,
+        'EPO',
+        'Balanced protection with moderate deductibles, low doctor visit copays, and national pharmacy network.',
+        '["$25 Primary Care Copay", "$50 Specialist Visit Copay", "Comprehensive Dental & Vision", "Low Generic Rx Copays"]'::jsonb
+    ),
+    (
+        'POL-GLD-03',
+        'Advantage Plus Gold',
+        'Gold',
+        449.00,
+        1500.00,
+        1000000.00,
+        20,
+        'PPO',
+        'Comprehensive healthcare coverage with high flexibility, extensive provider networks, and minimal out-of-pocket costs.',
+        '["$15 Primary Care Copay", "No Referrals Needed for Specialists", "Out-of-Network Coverage Included", "Full Mental Health Coverage"]'::jsonb
+    ),
+    (
+        'POL-PLT-04',
+        'Executive Pinnacle Platinum',
+        'Platinum',
+        699.00,
+        500.00,
+        2500000.00,
+        10,
+        'PPO',
+        'Top-tier concierge healthcare with near-zero deductibles, premium hospital network access, and global travel emergency assistance.',
+        '["$0 Deductible for Preventive Care", "Concierge SRE & Telehealth Support", "Global Medical Assistance", "All Specialized Diagnostics Covered"]'::jsonb
+    )
+    ON CONFLICT (code) DO NOTHING;
+
+    -- =============================================================================
+    -- CLAIMS DATABASE INITIALIZATION
+    -- =============================================================================
+    \c claims_db;
+
+    CREATE TABLE IF NOT EXISTS claims (
+        id SERIAL PRIMARY KEY,
+        claim_number VARCHAR(50) UNIQUE NOT NULL,
+        member_id VARCHAR(50) NOT NULL,
+        policy_code VARCHAR(50) NOT NULL,
+        patient_name VARCHAR(150) NOT NULL,
+        provider_hospital VARCHAR(255) NOT NULL,
+        treatment_description TEXT NOT NULL,
+        claimed_amount NUMERIC(10, 2) NOT NULL,
+        approved_amount NUMERIC(10, 2) DEFAULT 0.00,
+        status VARCHAR(50) DEFAULT 'SUBMITTED',
+        service_date DATE NOT NULL,
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO claims (claim_number, member_id, policy_code, patient_name, provider_hospital, treatment_description, claimed_amount, approved_amount, status, service_date, notes)
+    VALUES 
+    (
+        'CLM-2026-8801',
+        'MEM-1001',
+        'POL-GLD-03',
+        'John Doe',
+        'Metro General Hospital',
+        'Outpatient MRI Scan & Orthopedic Consultation',
+        1850.00,
+        1480.00,
+        'APPROVED',
+        '2026-08-15',
+        'Pre-authorized diagnostic imaging covered at 80% after copay.'
+    ),
+    (
+        'CLM-2026-8802',
+        'MEM-1001',
+        'POL-GLD-03',
+        'John Doe',
+        'Apex Cardiology Clinic',
+        'Cardiac Stress Test & Electrocardiogram',
+        720.00,
+        0.00,
+        'IN_REVIEW',
+        '2026-09-02',
+        'Medical records requested from attending physician.'
+    ),
+    (
+        'CLM-2026-8803',
+        'MEM-1002',
+        'POL-SLV-02',
+        'Sarah Smith',
+        'St. Jude Medical Center',
+        'Pediatric Emergency Care & Sutures',
+        1200.00,
+        950.00,
+        'SETTLED',
+        '2026-07-28',
+        'Payment dispatched to provider via direct deposit.'
+    )
+    ON CONFLICT (claim_number) DO NOTHING;
+
+    -- =============================================================================
+    -- MEMBERS DATABASE INITIALIZATION
+    -- =============================================================================
+    \c members_db;
+
+    CREATE TABLE IF NOT EXISTS members (
+        id SERIAL PRIMARY KEY,
+        member_id VARCHAR(50) UNIQUE NOT NULL,
+        first_name VARCHAR(100) NOT NULL,
+        last_name VARCHAR(100) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        phone VARCHAR(50),
+        date_of_birth DATE,
+        address TEXT,
+        active_policy_code VARCHAR(50) NOT NULL,
+        policy_status VARCHAR(50) DEFAULT 'ACTIVE',
+        effective_date DATE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO members (member_id, first_name, last_name, email, phone, date_of_birth, address, active_policy_code, policy_status, effective_date)
+    VALUES 
+    (
+        'MEM-1001',
+        'John',
+        'Doe',
+        'john.doe@example.com',
+        '+1 (555) 234-5678',
+        '1988-04-12',
+        '742 Evergreen Terrace, Springfield, OR',
+        'POL-GLD-03',
+        'ACTIVE',
+        '2026-01-01'
+    ),
+    (
+        'MEM-1002',
+        'Sarah',
+        'Smith',
+        'sarah.smith@example.com',
+        '+1 (555) 987-6543',
+        '1992-09-24',
+        '10880 Wilshire Blvd, Los Angeles, CA',
+        'POL-SLV-02',
+        'ACTIVE',
+        '2026-03-15'
+    )
+    ON CONFLICT (member_id) DO NOTHING;

@@ -1,0 +1,56 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Health Insurance EKS Health Checker",
+    "version": "1.0.0",
+    "description": "Checks health status of the HealthShield EKS cluster including node groups, deployments, and pod restarts in the health-insurance namespace"
+  },
+  "paths": {
+    "/fetch_service_health": {
+      "get": {
+        "summary": "Check EKS cluster health",
+        "description": "Checks the health of the healthshield-eks cluster — cluster status, node group health, unhealthy or scaled-down deployments, and crashing pods in the health-insurance namespace. Use this when the user asks if insurance services are running, if pods are healthy, or for an SRE health check. Default cluster is healthshield-eks and default namespace is health-insurance.",
+        "operationId": "fetch_service_health",
+        "parameters": [
+          {
+            "name": "cluster_name",
+            "in": "query",
+            "required": false,
+            "description": "EKS cluster name to check. Defaults to healthshield-eks.",
+            "schema": {
+              "type": "string",
+              "default": "healthshield-eks"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "description": "Kubernetes namespace to check deployments and pods in. Defaults to health-insurance.",
+            "schema": {
+              "type": "string",
+              "default": "health-insurance"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EKS cluster health status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "overall_healthy": { "type": "boolean" },
+                    "details": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

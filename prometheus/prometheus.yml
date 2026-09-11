@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:3001']
+
+  - job_name: 'auth'
+    static_configs:
+      - targets: ['auth:3002']
+
+  - job_name: 'policy-service'
+    static_configs:
+      - targets: ['policy-service:3003']
+
+  - job_name: 'claim-service'
+    static_configs:
+      - targets: ['claim-service:3004']
+
+  - job_name: 'member-service'
+    static_configs:
+      - targets: ['member-service:3005']

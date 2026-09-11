@@ -1,0 +1,57 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Health Insurance Prometheus & CloudWatch Metrics Fetcher",
+    "version": "1.0.0",
+    "description": "Fetches performance metrics from Prometheus and CloudWatch for the Health Insurance platform"
+  },
+  "paths": {
+    "/fetch_metrics": {
+      "get": {
+        "summary": "Fetch performance metrics",
+        "description": "Retrieves metric data points from Prometheus / CloudWatch Metrics for the Health Insurance platform. Use when checking CPU usage, memory, error rates, latency, database connections, pod restarts, or request rates.",
+        "operationId": "fetch_metrics",
+        "parameters": [
+          {
+            "name": "metric_name",
+            "in": "query",
+            "required": true,
+            "description": "The metric query name. Common values: pod_cpu_utilization, pod_memory_utilization, pod_restarts, deployment_replicas_unavailable, deployment_replicas_available",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "description": "The Kubernetes namespace. Default is health-insurance.",
+            "schema": { "type": "string", "default": "health-insurance" }
+          },
+          {
+            "name": "hours_back",
+            "in": "query",
+            "required": false,
+            "description": "How many hours of data to retrieve.",
+            "schema": { "type": "string", "default": "1" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metric data points",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "metric": { "type": "string" },
+                    "data": { "type": "array" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

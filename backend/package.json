@@ -1,0 +1,17 @@
+{
+  "name": "health-insurance-backend",
+  "version": "1.0.0",
+  "description": "Backend microservices for Health Insurance Platform",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:gateway\" \"npm run dev:auth\" \"npm run dev:policies\" \"npm run dev:claims\" \"npm run dev:members\"",
+    "dev:gateway": "cd services/gateway && npm run dev",
+    "dev:auth": "cd services/auth && npm run dev",
+    "dev:policies": "cd services/policy-service && npm run dev",
+    "dev:claims": "cd services/claim-service && npm run dev",
+    "dev:members": "cd services/member-service && npm run dev",
+    "build": "cd services/gateway && npm run build && cd ../auth && npm run build && cd ../policy-service && npm run build && cd ../claim-service && npm run build && cd ../member-service && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
