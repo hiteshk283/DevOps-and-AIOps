@@ -109,23 +109,26 @@ terraform destroy
 
 ---
 
-## 3. Deploying to Kubernetes / AWS EKS
+## 3. Deploying to Kubernetes / AWS EKS (GitOps)
 
-To deploy this application to your Kubernetes cluster:
-
+### Option A: Automated GitOps via ArgoCD (Recommended)
+Once your cloud infrastructure is provisioned by Terraform:
 ```bash
-# 1. Apply namespace and secrets
-kubectl apply -f k8s/namespace.yml
-kubectl apply -f k8s/secrets.yml
-
-# 2. Deploy database with initialization ConfigMap
-kubectl apply -f k8s/database/configmap.yml
-kubectl apply -f k8s/database/service.yml
-kubectl apply -f k8s/database/statefulset.yml
-
-# 3. Deploy all microservices and frontend
-kubectl apply -f k8s/services/
+# Apply the ArgoCD Application manifest to sync from Git automatically:
+kubectl apply -f gitops/argo-cd.yml
 ```
+
+### Option B: Manual Apply via Kustomize
+```bash
+# Apply all namespace, secrets, database, backend services, frontend, and monitors:
+kubectl apply -k gitops/
+```
+
+### Option C: Trigger CI/CD Pipeline
+Push your changes to GitHub or trigger manually in GitHub Actions (`.github/workflows/ci.yml`). The workflow will:
+1. Build all 6 microservice images
+2. Push images with the Git commit SHA and `latest` tags to Amazon ECR
+3. Update manifests in `gitops/k8s/` and commit them back, prompting ArgoCD to reconcile
 
 ---
 

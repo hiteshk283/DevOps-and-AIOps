@@ -9,7 +9,7 @@ import { metricsMiddleware, setupMetrics } from './metrics';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3004;
+const PORT: number = Number(process.env.PORT) || 3004;
 
 app.use(helmet());
 app.use(cors());

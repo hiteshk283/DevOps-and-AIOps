@@ -1,31 +1,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: claim-service
+  name: auth
   namespace: health-insurance
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: claim-service
+      app: auth
   template:
     metadata:
       labels:
-        app: claim-service
+        app: auth
     spec:
       containers:
-        - name: claim-service
-          image: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/order-service:latest
+        - name: auth
+          image: 794558722040.dkr.ecr.us-east-1.amazonaws.com/auth:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 3004
+            - containerPort: 3002
           env:
             - name: PORT
-              value: "3004"
+              value: "3002"
             - name: DB_HOST
               value: postgres
             - name: DB_NAME
-              value: claims_db
+              value: auth_db
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
@@ -36,6 +36,11 @@ spec:
                 secretKeyRef:
                   name: insurance-secrets
                   key: POSTGRES_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: insurance-secrets
+                  key: JWT_SECRET
           resources:
             requests:
               cpu: 100m
@@ -46,23 +51,23 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 3004
+              port: 3002
             initialDelaySeconds: 5
             periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: claim-service
+  name: auth
   namespace: health-insurance
   labels:
-    app: claim-service
+    app: auth
 spec:
   selector:
-    app: claim-service
+    app: auth
   ports:
     - name: http
       protocol: TCP
-      port: 3004
-      targetPort: 3004
+      port: 3002
+      targetPort: 3002
   type: ClusterIP
