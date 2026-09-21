@@ -66,3 +66,28 @@ terraform output -raw kafka_s3_connector_secret_key
 ## 3. Cost Management Best Practices
 * **Compute is on OpenShift**: By running application compute on Red Hat OpenShift rather than AWS EKS, you eliminate the \$73/month EKS control plane fee and NAT Gateway fees.
 * **S3 Lifecycle Rules**: Kafka events automatically transition to lower-cost storage tiers (`STANDARD_IA` at 90 days, `GLACIER` at 180 days).
+
+---
+
+## 4. Complete Teardown & $0 AWS Cost Verification
+
+To cleanly tear down all AWS resources and guarantee zero ongoing cloud expenditure:
+
+```bash
+cd infrastructure
+
+# 1. Preview resources marked for deletion
+terraform plan -destroy
+
+# 2. Destroy all AWS resources
+terraform destroy -auto-approve
+
+# 3. Verify zero lingering resources via AWS CLI
+aws s3 ls
+aws ecr describe-repositories --region us-east-1
+aws iam list-users --query 'Users[?contains(UserName, `healthshield`)].UserName'
+terraform show
+```
+
+For the master command reference, see [docs/COMMANDS_USED_TODAY.md](./COMMANDS_USED_TODAY.md).
+
