@@ -14,6 +14,8 @@ pipeline {
         HELM_BIN       = '/tmp/helm'
         LOKI_URL       = 'http://loki:3100/loki/api/v1/push'
         JIRA_ISSUE_KEY = 'OPS-1'
+        IMAGE_TAG      = "${params.IMAGE_TAG ?: 'latest'}"
+        TARGET_ENV     = "${params.TARGET_ENV ?: 'dev'}"
     }
 
     stages {
@@ -53,11 +55,11 @@ pipeline {
 
         stage('4. Deploy via Helm to OpenShift') {
             steps {
-                echo "Executing Helm upgrade/install with image tag: ${params.IMAGE_TAG}..."
+                echo "Executing Helm upgrade/install with image tag: ${IMAGE_TAG}..."
                 sh '''
                     ${HELM_BIN} upgrade --install healthshield ./charts/healthshield \
                         --namespace ${NAMESPACE} \
-                        --set global.imageTag=${params.IMAGE_TAG}
+                        --set global.imageTag=${IMAGE_TAG}
                 '''
             }
         }
@@ -87,7 +89,7 @@ pipeline {
                         curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ISSUE_KEY}/comment" \
                             -H "Authorization: Basic ${AUTH}" \
                             -H "Content-Type: application/json" \
-                            -d '{"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"[Jenkins CD] HealthShield release deployed successfully to OpenShift namespace: '${NAMESPACE}'. Image Tag: '${params.IMAGE_TAG}'. Release: #'${BUILD_NUMBER}'"}]}]}}' || true
+                            -d '{"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"[Jenkins CD] HealthShield release deployed successfully to OpenShift namespace: '${NAMESPACE}'. Image Tag: '${IMAGE_TAG}'. Release: #'${BUILD_NUMBER}'"}]}]}}' || true
                         echo "Jira issue updated."
                     else
                         echo "Jira credentials not set, skipping Jira notification."
@@ -103,7 +105,7 @@ pipeline {
                     TIMESTAMP=$(date +%s%N)
                     curl -s -X POST ${LOKI_URL} \
                         -H "Content-Type: application/json" \
-                        -d '{"streams":[{"stream":{"app":"jenkins-cd","env":"'${params.TARGET_ENV}'","job":"'${JOB_NAME}'","status":"success"},"values":[["'${TIMESTAMP}'","HealthShield microservices release #'${BUILD_NUMBER}' deployed via Helm (ImageTag: '${params.IMAGE_TAG}') to OpenShift"]]}]}' || true
+                        -d '{"streams":[{"stream":{"app":"jenkins-cd","env":"'${TARGET_ENV}'","job":"'${JOB_NAME}'","status":"success"},"values":[["'${TIMESTAMP}'","HealthShield microservices release #'${BUILD_NUMBER}' deployed via Helm (ImageTag: '${IMAGE_TAG}') to OpenShift"]]}]}' || true
                     echo "Audit log shipped to Loki."
                 '''
             }

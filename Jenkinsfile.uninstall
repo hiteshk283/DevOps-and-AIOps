@@ -11,9 +11,11 @@ pipeline {
     }
 
     environment {
-        HELM_BIN       = '/tmp/helm'
-        LOKI_URL       = 'http://loki:3100/loki/api/v1/push'
-        JIRA_ISSUE_KEY = 'OPS-1'
+        HELM_BIN         = '/tmp/helm'
+        LOKI_URL         = 'http://loki:3100/loki/api/v1/push'
+        JIRA_ISSUE_KEY   = 'OPS-1'
+        TARGET_NAMESPACE = "${params.TARGET_NAMESPACE ?: 'kumarh5149-dev'}"
+        RELEASE_NAME     = "${params.RELEASE_NAME ?: 'healthshield'}"
     }
 
     stages {
@@ -23,7 +25,7 @@ pipeline {
                     if (!params.CONFIRM_TEARDOWN) {
                         error("Teardown aborted: CONFIRM_TEARDOWN parameter was not checked. Please check the box to confirm deletion.")
                     }
-                    echo "Safety check passed. Proceeding with teardown of release '${params.RELEASE_NAME}' in namespace '${params.TARGET_NAMESPACE}'."
+                    echo "Safety check passed. Proceeding with teardown of release '${RELEASE_NAME}' in namespace '${TARGET_NAMESPACE}'."
                 }
             }
         }
@@ -40,14 +42,14 @@ pipeline {
                     fi
                     ${HELM_BIN} version
                     oc whoami
-                    oc project ${params.TARGET_NAMESPACE}
+                    oc project ${TARGET_NAMESPACE}
                 '''
             }
         }
 
         stage('3. Uninstall Helm Release') {
             steps {
-                echo "Uninstalling Helm release: ${params.RELEASE_NAME}..."
+                echo "Uninstalling Helm release: ${RELEASE_NAME}..."
                 sh '''
                     if ${HELM_BIN} status ${RELEASE_NAME} -n ${TARGET_NAMESPACE} >/dev/null 2>&1; then
                         ${HELM_BIN} uninstall ${RELEASE_NAME} --namespace ${TARGET_NAMESPACE}
@@ -78,7 +80,7 @@ pipeline {
                         curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ISSUE_KEY}/comment" \
                             -H "Authorization: Basic ${AUTH}" \
                             -H "Content-Type: application/json" \
-                            -d '{"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"[Jenkins Teardown] HealthShield resources for release '${params.RELEASE_NAME}' were uninstalled from namespace '${params.TARGET_NAMESPACE}'. Build #'${BUILD_NUMBER}'"}]}]}}' || true
+                            -d '{"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"[Jenkins Teardown] HealthShield resources for release '${RELEASE_NAME}' were uninstalled from namespace '${TARGET_NAMESPACE}'. Build #'${BUILD_NUMBER}'"}]}]}}' || true
                         echo "Jira issue updated."
                     else
                         echo "Jira credentials not set, skipping."
@@ -94,7 +96,7 @@ pipeline {
                     TIMESTAMP=$(date +%s%N)
                     curl -s -X POST ${LOKI_URL} \
                         -H "Content-Type: application/json" \
-                        -d '{"streams":[{"stream":{"app":"jenkins-teardown","job":"'${JOB_NAME}'","status":"uninstalled"},"values":[["'${TIMESTAMP}'","HealthShield release '${params.RELEASE_NAME}' uninstalled and cleaned up from namespace '${params.TARGET_NAMESPACE}' (Build #'${BUILD_NUMBER}')"]]}]}' || true
+                        -d '{"streams":[{"stream":{"app":"jenkins-teardown","job":"'${JOB_NAME}'","status":"uninstalled"},"values":[["'${TIMESTAMP}'","HealthShield release '${RELEASE_NAME}' uninstalled and cleaned up from namespace '${TARGET_NAMESPACE}' (Build #'${BUILD_NUMBER}')"]]}]}' || true
                     echo "Audit log shipped to Loki."
                 '''
             }
