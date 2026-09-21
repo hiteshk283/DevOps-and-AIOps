@@ -191,7 +191,7 @@ claimRoutes.post('/pre-auth', async (req: Request, res: Response): Promise<any> 
 });
 
 // 4. POST File Reimbursement Claim
-claimRoutes.post('/reimbursement', async (req: Request, res: Response): Promise<any> => {
+const handleReimbursement = async (req: Request, res: Response): Promise<any> => {
   const { memberId, policyCode, patientName, hospitalName, treatmentDescription, claimedAmount, serviceDate, notes, bankDetails } = req.body;
 
   const claimNumber = `CLM-${Date.now().toString().slice(-6)}`;
@@ -225,7 +225,9 @@ claimRoutes.post('/reimbursement', async (req: Request, res: Response): Promise<
     message: 'Reimbursement claim received. Assigned to claims assessment desk.',
     claim
   });
-});
+};
+
+claimRoutes.post('/reimbursement', handleReimbursement);
 
 // 5. Admin Decision on Claim (Approve, Settle, Reject, or Query)
 claimRoutes.patch('/:claimId/decision', async (req: Request, res: Response): Promise<any> => {
@@ -238,52 +240,68 @@ claimRoutes.patch('/:claimId/decision', async (req: Request, res: Response): Pro
   }
 
   claim.status = status || claim.status;
-  if (approvedAmount !== undefined) claim.approved_amount = Number(approvedAmount);
-  if (notes) claim.notes = notes;
+  if (approvedAmount !== undefined) {
+    claim.approved_amount = Number(approvedAmount);
+  }
+  if (notes) {
+    claim.notes = notes;
+  }
 
   res.json({
-    status: 'UPDATED',
-    message: `Claim ${claim.claim_number} status updated to ${claim.status}`,
+    status: 'DECISION_RECORDED',
+    message: `Claim ${claim.claim_number} updated to ${claim.status}`,
     claim
   });
 });
 
-// 6. Pre-auth details
-claimRoutes.get('/pre-auth/:id', async (req: Request, res: Response): Promise<any> => {
-  const id = parseInt(req.params.id);
-  const found = PRE_AUTH_REQUESTS.find(p => p.id === id || p.claim_id === id);
-  res.json(found || PRE_AUTH_REQUESTS[0]);
+// 6. Pre-Auth TPA Review
+claimRoutes.patch('/preauth/:preAuthId/review', async (req: Request, res: Response): Promise<any> => {
+  const { preAuthId } = req.params;
+  const { decision, comments, approvedAmount } = req.body;
+
+  const preAuth = PRE_AUTH_REQUESTS.find(p => p.id === Number(preAuthId) || p.pre_auth_number === preAuthId);
+  if (!preAuth) {
+    return res.status(404).json({ error: 'Pre-auth request not found' });
+  }
+
+  preAuth.tpa_decision = decision || preAuth.tpa_decision;
+  if (comments) preAuth.tpa_comments = comments;
+
+  const claim = DEFAULT_CLAIMS.find(c => c.id === preAuth.claim_id);
+  if (claim) {
+    if (decision === 'APPROVED') {
+      claim.status = 'PRE_AUTH_APPROVED';
+      if (approvedAmount) claim.approved_amount = Number(approvedAmount);
+    } else if (decision === 'REJECTED') {
+      claim.status = 'REJECTED';
+    } else if (decision === 'INFO_REQUESTED') {
+      claim.status = 'QUERY_RAISED';
+    }
+  }
+
+  res.json({ status: 'REVIEWED', preAuth, claim });
 });
 
-// 7. Claim Queries
-claimRoutes.get('/:claimId/queries', async (req: Request, res: Response): Promise<any> => {
-  const claimId = parseInt(req.params.claimId);
-  const queries = CLAIM_QUERIES.filter(q => q.claim_id === claimId);
-  res.json(queries);
-});
-
-claimRoutes.post('/:claimId/queries', async (req: Request, res: Response): Promise<any> => {
-  const claimId = parseInt(req.params.claimId);
-  const { queryText, queriedBy } = req.body;
+// 7. Raise Query on Claim
+claimRoutes.post('/:claimId/query', async (req: Request, res: Response): Promise<any> => {
+  const { claimId } = req.params;
+  const { question, requiredDocuments } = req.body;
 
   const query = {
     id: Date.now(),
-    claim_id: claimId,
-    query_text: queryText,
-    response_text: null,
-    queried_by: queriedBy || 'Claims Medical Officer',
+    claim_id: Number(claimId),
+    question,
+    required_documents: requiredDocuments || ['Discharge Summary', 'Itemized Hospital Bill'],
     status: 'OPEN',
     created_at: new Date().toISOString()
   };
   CLAIM_QUERIES.push(query);
 
-  const claim = DEFAULT_CLAIMS.find(c => c.id === claimId);
+  const claim = DEFAULT_CLAIMS.find(c => c.id === Number(claimId));
   if (claim) claim.status = 'IN_REVIEW';
 
   res.json({ status: 'QUERY_RAISED', query });
 });
 
 // 8. Legacy submit route backward compatibility
-claimRoutes.post('/', async (req: Request, res: Response): Promise<any> => {
-  return claimRoutes.handle(Object.assign(req, { url: '/reimbursement' }), res, () => {});
-});
+claimRoutes.post('/', handleReimbursement);
