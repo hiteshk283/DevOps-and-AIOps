@@ -89,3 +89,41 @@ healthshield-gateway-route     healthshield-gateway.apps.your-cluster.openshift.
 
 * Open the `healthshield-frontend-route` host in your web browser to view the **HealthShield Consumer & Admin Portal**!
 * Open `healthshield-gateway-route/api/status` to view the **Microservices Gateway Telemetry**.
+
+---
+
+## 4. Deploying via Helm Chart (`charts/healthshield`)
+
+Instead of applying individual manifests, deploy the entire platform via Helm:
+
+```bash
+# Preview rendered templates
+helm template healthshield ./charts/healthshield \
+  --namespace kumarh5149-dev \
+  --set global.imageTag=latest
+
+# Deploy or upgrade
+helm upgrade --install healthshield ./charts/healthshield \
+  --namespace kumarh5149-dev \
+  --set global.imageTag=latest
+
+# Uninstall all microservices
+helm uninstall healthshield --namespace kumarh5149-dev
+```
+
+---
+
+## 5. Jenkins Operations (Safe Stop & Resume)
+
+To preserve OpenShift Developer Sandbox quotas (3 vCPUs, 30 GiB RAM):
+
+```bash
+# Safely stop Jenkins (frees compute while keeping all data on the 1Gi EBS PVC):
+oc scale dc/jenkins --replicas=0 -n kumarh5149-dev
+
+# Resume Jenkins (restores all pipelines, jobs, credentials):
+oc scale dc/jenkins --replicas=1 -n kumarh5149-dev
+```
+
+For the complete list of all OpenShift, Helm, and AWS commands, see [docs/COMMANDS_USED_TODAY.md](./COMMANDS_USED_TODAY.md).
+
