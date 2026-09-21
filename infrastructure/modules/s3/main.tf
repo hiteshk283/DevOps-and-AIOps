@@ -5,7 +5,7 @@ data "aws_caller_identity" "current" {}
 # ==============================================================================
 resource "aws_s3_bucket" "kafka_events" {
   bucket        = "${var.project_name}-kafka-events-${data.aws_caller_identity.current.account_id}"
-  force_destroy = false
+  force_destroy = true
 
   tags = {
     Name        = "${var.project_name}-kafka-events"
@@ -67,7 +67,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "kafka_events" {
 # ==============================================================================
 resource "aws_s3_bucket" "documents" {
   bucket        = "${var.project_name}-documents-${data.aws_caller_identity.current.account_id}"
-  force_destroy = false
+  force_destroy = true
 
   tags = {
     Name        = "${var.project_name}-medical-documents"
