@@ -1,0 +1,116 @@
+// ==============================================================================
+// HEALTHSHIELD TEARDOWN & UNINSTALL PIPELINE (JENKINS + HELM + OPENSHIFT)
+// ==============================================================================
+pipeline {
+    agent any
+
+    parameters {
+        booleanParam(name: 'CONFIRM_TEARDOWN', defaultValue: false, description: 'Check this box to confirm uninstallation of HealthShield resources')
+        string(name: 'TARGET_NAMESPACE', defaultValue: 'kumarh5149-dev', description: 'OpenShift namespace to clean up')
+        string(name: 'RELEASE_NAME', defaultValue: 'healthshield', description: 'Helm release name to uninstall')
+    }
+
+    environment {
+        HELM_BIN       = '/tmp/helm'
+        LOKI_URL       = 'http://loki:3100/loki/api/v1/push'
+        JIRA_ISSUE_KEY = 'OPS-1'
+    }
+
+    stages {
+        stage('1. Confirm Teardown Safety') {
+            steps {
+                script {
+                    if (!params.CONFIRM_TEARDOWN) {
+                        error("Teardown aborted: CONFIRM_TEARDOWN parameter was not checked. Please check the box to confirm deletion.")
+                    }
+                    echo "Safety check passed. Proceeding with teardown of release '${params.RELEASE_NAME}' in namespace '${params.TARGET_NAMESPACE}'."
+                }
+            }
+        }
+
+        stage('2. Prepare Helm CLI') {
+            steps {
+                echo "Verifying Helm CLI..."
+                sh '''
+                    if [ ! -f ${HELM_BIN} ]; then
+                        echo "Installing Helm CLI to ${HELM_BIN}..."
+                        curl -fsSL https://get.helm.sh/helm-v3.14.4-linux-amd64.tar.gz | tar -xz -C /tmp
+                        mv /tmp/linux-amd64/helm ${HELM_BIN}
+                        chmod +x ${HELM_BIN}
+                    fi
+                    ${HELM_BIN} version
+                    oc whoami
+                    oc project ${params.TARGET_NAMESPACE}
+                '''
+            }
+        }
+
+        stage('3. Uninstall Helm Release') {
+            steps {
+                echo "Uninstalling Helm release: ${params.RELEASE_NAME}..."
+                sh '''
+                    if ${HELM_BIN} status ${RELEASE_NAME} -n ${TARGET_NAMESPACE} >/dev/null 2>&1; then
+                        ${HELM_BIN} uninstall ${RELEASE_NAME} --namespace ${TARGET_NAMESPACE}
+                        echo "Helm release ${RELEASE_NAME} successfully uninstalled."
+                    else
+                        echo "Release ${RELEASE_NAME} is not installed in namespace ${TARGET_NAMESPACE}. Nothing to uninstall."
+                    fi
+                '''
+            }
+        }
+
+        stage('4. Verify Resource Teardown') {
+            steps {
+                echo "Verifying that application pods and services are removed..."
+                sh '''
+                    echo "Remaining resources in ${TARGET_NAMESPACE}:"
+                    oc get pods,svc,routes -n ${TARGET_NAMESPACE}
+                '''
+            }
+        }
+
+        stage('5. Notify Jira Service Management') {
+            steps {
+                echo "Posting teardown audit update to Jira ticket ${JIRA_ISSUE_KEY}..."
+                sh '''
+                    if [ -n "${JIRA_API_TOKEN}" ] && [ -n "${JIRA_BASE_URL}" ]; then
+                        AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64)
+                        curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ISSUE_KEY}/comment" \
+                            -H "Authorization: Basic ${AUTH}" \
+                            -H "Content-Type: application/json" \
+                            -d '{"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"[Jenkins Teardown] HealthShield resources for release '${params.RELEASE_NAME}' were uninstalled from namespace '${params.TARGET_NAMESPACE}'. Build #'${BUILD_NUMBER}'"}]}]}}' || true
+                        echo "Jira issue updated."
+                    else
+                        echo "Jira credentials not set, skipping."
+                    fi
+                '''
+            }
+        }
+
+        stage('6. Ship Teardown Audit Log to Loki') {
+            steps {
+                echo "Pushing teardown audit log to Grafana Loki..."
+                sh '''
+                    TIMESTAMP=$(date +%s%N)
+                    curl -s -X POST ${LOKI_URL} \
+                        -H "Content-Type: application/json" \
+                        -d '{"streams":[{"stream":{"app":"jenkins-teardown","job":"'${JOB_NAME}'","status":"uninstalled"},"values":[["'${TIMESTAMP}'","HealthShield release '${params.RELEASE_NAME}' uninstalled and cleaned up from namespace '${params.TARGET_NAMESPACE}' (Build #'${BUILD_NUMBER}')"]]}]}' || true
+                    echo "Audit log shipped to Loki."
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "==========================================================="
+            echo "HealthShield resources successfully uninstalled & cleaned up."
+            echo "==========================================================="
+        }
+        failure {
+            echo "==========================================================="
+            echo "Teardown pipeline failed or was aborted."
+            echo "==========================================================="
+        }
+    }
+}
