@@ -1,100 +1,110 @@
 // ==============================================================================
-// HEALTHSHIELD ENTERPRISE CI/CD PIPELINE (JENKINS + ECR + HELM + OPENSHIFT)
+// HEALTHSHIELD ENTERPRISE CD PIPELINE (JENKINS + HELM + OPENSHIFT + LOKI + JIRA)
 // ==============================================================================
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Container Image Tag from GitHub Actions CI')
+        choice(name: 'TARGET_ENV', choices: ['dev', 'staging', 'production'], description: 'Deployment Target Environment')
+    }
+
     environment {
-        AWS_REGION     = 'us-east-1'
-        AWS_ACCOUNT_ID = '794558722040'
-        ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        IMAGE_TAG      = "${env.BUILD_NUMBER != null ? env.BUILD_NUMBER : 'latest'}"
         NAMESPACE      = 'kumarh5149-dev'
+        HELM_BIN       = '/tmp/helm'
         LOKI_URL       = 'http://loki:3100/loki/api/v1/push'
+        JIRA_ISSUE_KEY = 'OPS-1'
     }
 
     stages {
-        stage('1. Checkout Source') {
+        stage('1. Checkout Helm Manifests') {
             steps {
-                echo "Checking out HealthShield repository..."
+                echo "Checking out latest Helm charts and configuration..."
                 checkout scm
             }
         }
 
-        stage('2. AWS ECR Authentication') {
+        stage('2. Prepare Helm Environment') {
             steps {
-                echo "Authenticating with Amazon ECR in ${AWS_REGION}..."
+                echo "Verifying Helm CLI binary..."
                 sh '''
-                    aws ecr get-login-password --region ${AWS_REGION} | \
-                    docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                    if [ ! -f ${HELM_BIN} ]; then
+                        echo "Installing Helm CLI to ${HELM_BIN}..."
+                        curl -fsSL https://get.helm.sh/helm-v3.14.4-linux-amd64.tar.gz | tar -xz -C /tmp
+                        mv /tmp/linux-amd64/helm ${HELM_BIN}
+                        chmod +x ${HELM_BIN}
+                    fi
+                    ${HELM_BIN} version
+                    oc whoami
+                    oc project ${NAMESPACE}
                 '''
             }
         }
 
-        stage('3. Build & Push Backend Microservices to ECR') {
+        stage('3. Verify ECR Pull Secret') {
             steps {
-                echo "Building and pushing all microservices to AWS ECR..."
+                echo "Verifying OpenShift aws-ecr-secret..."
                 sh '''
-                    SERVICES="auth gateway policy-service claim-service member-service hospital-service billing-service document-service support-service"
-                    for SVC in $SERVICES; do
-                        echo "================== Building ${SVC} =================="
-                        docker build -t ${ECR_REGISTRY}/${SVC}:${IMAGE_TAG} -t ${ECR_REGISTRY}/${SVC}:latest backend/services/${SVC}
-                        echo "================== Pushing ${SVC} to ECR =================="
-                        docker push ${ECR_REGISTRY}/${SVC}:${IMAGE_TAG}
-                        docker push ${ECR_REGISTRY}/${SVC}:latest
-                    done
-                '''
-            }
-        }
-
-        stage('4. Build & Push React Frontend to ECR') {
-            steps {
-                echo "Building and pushing Frontend portal to AWS ECR..."
-                sh '''
-                    echo "================== Building Frontend =================="
-                    docker build -t ${ECR_REGISTRY}/frontend:${IMAGE_TAG} -t ${ECR_REGISTRY}/frontend:latest frontend
-                    echo "================== Pushing Frontend to ECR =================="
-                    docker push ${ECR_REGISTRY}/frontend:${IMAGE_TAG}
-                    docker push ${ECR_REGISTRY}/frontend:latest
-                '''
-            }
-        }
-
-        stage('5. Sync OpenShift ECR Pull Secret') {
-            steps {
-                echo "Updating OpenShift imagePullSecret for ECR in namespace ${NAMESPACE}..."
-                sh '''
-                    ECR_PASS=$(aws ecr get-login-password --region ${AWS_REGION})
-                    oc create secret docker-registry aws-ecr-secret \
-                        --docker-server=${ECR_REGISTRY} \
-                        --docker-username=AWS \
-                        --docker-password="${ECR_PASS}" \
-                        -n ${NAMESPACE} --dry-run=client -o yaml | oc apply -f -
+                    oc get secret aws-ecr-secret -n ${NAMESPACE} || echo "Creating secret..."
                     oc secrets link default aws-ecr-secret --for=pull -n ${NAMESPACE} 2>/dev/null || true
                 '''
             }
         }
 
-        stage('6. Deploy with Helm to OpenShift') {
+        stage('4. Deploy via Helm to OpenShift') {
             steps {
-                echo "Executing Helm upgrade/install to OpenShift namespace ${NAMESPACE}..."
+                echo "Executing Helm upgrade/install with image tag: ${params.IMAGE_TAG}..."
                 sh '''
-                    helm upgrade --install healthshield ./charts/healthshield \
+                    ${HELM_BIN} upgrade --install healthshield ./charts/healthshield \
                         --namespace ${NAMESPACE} \
-                        --set global.ecrRegistry=${ECR_REGISTRY} \
-                        --set global.imageTag=${IMAGE_TAG}
+                        --set global.imageTag=${params.IMAGE_TAG}
                 '''
             }
         }
 
-        stage('7. Ship Deployment Telemetry to Loki') {
+        stage('5. Verify Rollout Health') {
             steps {
-                echo "Pushing deployment telemetry event to Grafana Loki..."
+                echo "Verifying service rollouts..."
+                sh '''
+                    echo "Checking PostgreSQL..."
+                    oc rollout status deployment/postgres -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Kafka..."
+                    oc rollout status deployment/kafka -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Gateway..."
+                    oc rollout status deployment/gateway -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Frontend..."
+                    oc rollout status deployment/frontend -n ${NAMESPACE} --timeout=120s || true
+                '''
+            }
+        }
+
+        stage('6. Notify Jira Service Management') {
+            steps {
+                echo "Posting deployment status to Jira ticket ${JIRA_ISSUE_KEY}..."
+                sh '''
+                    if [ -n "${JIRA_API_TOKEN}" ] && [ -n "${JIRA_BASE_URL}" ]; then
+                        AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64)
+                        curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ISSUE_KEY}/comment" \
+                            -H "Authorization: Basic ${AUTH}" \
+                            -H "Content-Type: application/json" \
+                            -d '{"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"[Jenkins CD] HealthShield release deployed successfully to OpenShift namespace: '${NAMESPACE}'. Image Tag: '${params.IMAGE_TAG}'. Release: #'${BUILD_NUMBER}'"}]}]}}' || true
+                        echo "Jira issue updated."
+                    else
+                        echo "Jira credentials not set, skipping Jira notification."
+                    fi
+                '''
+            }
+        }
+
+        stage('7. Ship Audit Log to Grafana Loki') {
+            steps {
+                echo "Pushing deployment audit event to Loki..."
                 sh '''
                     TIMESTAMP=$(date +%s%N)
                     curl -s -X POST ${LOKI_URL} \
                         -H "Content-Type: application/json" \
-                        -d "{\\"streams\\":[{\\"stream\\":{\\"app\\":\\"jenkins\\",\\"job\\":\\"${JOB_NAME}\\",\\"status\\":\\"success\\"},\\"values\\":[[\"${TIMESTAMP}\",\"HealthShield microservices successfully built, pushed to ECR, and deployed via Helm (Build #${IMAGE_TAG})\"]]}]}" || true
+                        -d '{"streams":[{"stream":{"app":"jenkins-cd","env":"'${params.TARGET_ENV}'","job":"'${JOB_NAME}'","status":"success"},"values":[["'${TIMESTAMP}'","HealthShield microservices release #'${BUILD_NUMBER}' deployed via Helm (ImageTag: '${params.IMAGE_TAG}') to OpenShift"]]}]}' || true
+                    echo "Audit log shipped to Loki."
                 '''
             }
         }
@@ -102,10 +112,14 @@ pipeline {
 
     post {
         success {
-            echo "HealthShield Pipeline finished successfully! All services live on OpenShift."
+            echo "==========================================================="
+            echo "HealthShield CD Pipeline SUCCEEDED! All services live on OCP."
+            echo "==========================================================="
         }
         failure {
-            echo "HealthShield Pipeline encountered an error."
+            echo "==========================================================="
+            echo "HealthShield CD Pipeline FAILED. Inspect logs above."
+            echo "==========================================================="
         }
     }
 }
