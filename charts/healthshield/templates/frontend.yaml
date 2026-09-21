@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.services.frontend.name }}
+  labels:
+    app: {{ .Values.services.frontend.name }}
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: {{ .Values.services.frontend.port }}
+      targetPort: 3000
+      name: http
+  selector:
+    app: {{ .Values.services.frontend.name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.services.frontend.name }}
+  labels:
+    app: {{ .Values.services.frontend.name }}
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.frontend.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ .Values.services.frontend.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.services.frontend.name }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.services.frontend.name }}
+          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.services.frontend.name }}:{{ .Values.global.imageTag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: REACT_APP_API_URL
+              value: "/api"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: {{ .Values.services.frontend.cpu | default "200m" }}
+              memory: {{ .Values.services.frontend.memory | default "256Mi" }}

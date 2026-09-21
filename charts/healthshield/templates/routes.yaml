@@ -1,0 +1,35 @@
+{{- if .Values.routes.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  to:
+    kind: Service
+    name: {{ .Values.services.frontend.name }}
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.routes.termination }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  to:
+    kind: Service
+    name: {{ .Values.services.gateway.name }}
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.routes.termination }}
+{{- end }}

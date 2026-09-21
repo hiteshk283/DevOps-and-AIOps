@@ -13,7 +13,7 @@ const PORT: number = Number(process.env.GATEWAY_PORT) || 3001;
 app.use(helmet());
 app.use(cors());
 
-setupMetrics(app, { serviceName: 'gateway-service', serviceVersion: '1.0.0' });
+setupMetrics(app, { serviceName: 'gateway-service', serviceVersion: '2.0.0' });
 app.use(metricsMiddleware);
 
 const services = {
@@ -21,6 +21,10 @@ const services = {
   policies: process.env.POLICIES_SERVICE_URL || 'http://localhost:3003',
   claims: process.env.CLAIMS_SERVICE_URL || 'http://localhost:3004',
   members: process.env.MEMBERS_SERVICE_URL || 'http://localhost:3005',
+  billing: process.env.BILLING_SERVICE_URL || 'http://localhost:3006',
+  hospitals: process.env.HOSPITALS_SERVICE_URL || 'http://localhost:3008',
+  documents: process.env.DOCUMENTS_SERVICE_URL || 'http://localhost:3009',
+  support: process.env.SUPPORT_SERVICE_URL || 'http://localhost:3010',
 };
 
 // Route Proxies
@@ -48,22 +52,49 @@ app.use('/api/members', createProxyMiddleware({
   pathRewrite: { '^/api/members': '' },
 }));
 
+app.use('/api/billing', createProxyMiddleware({
+  target: services.billing,
+  changeOrigin: true,
+  pathRewrite: { '^/api/billing': '' },
+}));
+
+app.use('/api/hospitals', createProxyMiddleware({
+  target: services.hospitals,
+  changeOrigin: true,
+  pathRewrite: { '^/api/hospitals': '' },
+}));
+
+app.use('/api/documents', createProxyMiddleware({
+  target: services.documents,
+  changeOrigin: true,
+  pathRewrite: { '^/api/documents': '' },
+}));
+
+app.use('/api/support', createProxyMiddleware({
+  target: services.support,
+  changeOrigin: true,
+  pathRewrite: { '^/api/support': '' },
+}));
+
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'online',
-    app: 'Health Insurance Gateway',
-    services: {
-      auth: services.auth,
-      policies: services.policies,
-      claims: services.claims,
-      members: services.members
+    app: 'HealthShield Health + Insurance Enterprise Gateway',
+    version: '2.0.0',
+    platform: 'Red Hat OpenShift (OCP) + AWS S3/IAM',
+    integrations: {
+      kafkaS3Sink: 'Enabled (payment.events, claim.events -> S3 Lakehouse)',
+      jiraServiceManagement: process.env.JIRA_BASE_URL ? 'Connected' : 'Sandbox Mode',
+      splunkLogging: process.env.SPLUNK_HEC_URL ? 'Connected' : 'Stdout JSON Mode',
+      irdaiConsentEngine: 'Active (DPDP Compliant)'
     },
+    services,
     timestamp: new Date().toISOString()
   });
 });
 
 app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found on Health Insurance Gateway' });
+  res.status(404).json({ error: 'Endpoint not found on HealthShield API Gateway' });
 });
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -72,6 +103,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Health Insurance Gateway] running on port ${PORT}`);
-  console.log(`[Health Insurance Gateway] Proxying to:`, services);
+  console.log(`[HealthShield Gateway] running on port ${PORT}`);
+  console.log(`[HealthShield Gateway] Reverse proxying to:`, services);
 });

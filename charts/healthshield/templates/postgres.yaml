@@ -1,0 +1,97 @@
+{{- if .Values.database.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: {{ .Values.database.port }}
+      targetPort: 5432
+      name: postgres
+  selector:
+    app: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: bitnami/postgresql:15
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRESQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: DB_USER
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: DB_PASSWORD
+            - name: POSTGRESQL_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: DB_PASSWORD
+            - name: POSTGRESQL_DATABASE
+              value: {{ .Values.database.dbName }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: DB_PASSWORD
+            - name: POSTGRES_DB
+              value: {{ .Values.database.dbName }}
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /bitnami/postgresql
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U postgres -h 127.0.0.1
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: postgres-data
+          emptyDir: {}
+        - name: init-scripts
+          configMap:
+            name: {{ include "healthshield.fullname" . }}-postgres-init
+            defaultMode: 0755
+{{- end }}

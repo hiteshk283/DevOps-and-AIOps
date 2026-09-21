@@ -42,6 +42,9 @@ wheels/
 .env.*.local
 *.pem
 *.key
+**/secrets.yml
+gitops/openshift/secrets.yml
+gitops/secrets.yml
 
 # Terraform artifacts
 .terraform/

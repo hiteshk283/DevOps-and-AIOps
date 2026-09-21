@@ -1,0 +1,36 @@
+# ==============================================================================
+# OPENSHIFT ROUTES (Replaces AWS ALB - Free TLS Edge Ingress)
+# ==============================================================================
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: healthshield-frontend-route
+  annotations:
+    description: "External public entrypoint for HealthShield Consumer & Admin Web Portal"
+spec:
+  to:
+    kind: Service
+    name: frontend
+    weight: 100
+  port:
+    targetPort: 3000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: healthshield-gateway-route
+  annotations:
+    description: "External public API Gateway Route for Mobile apps & Webhooks"
+spec:
+  to:
+    kind: Service
+    name: gateway
+    weight: 100
+  port:
+    targetPort: 3001
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

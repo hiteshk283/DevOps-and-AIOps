@@ -1,0 +1,136 @@
+# ==============================================================================
+# HEALTHSHIELD HELM VALUES
+# ==============================================================================
+global:
+  namespace: kumarh5149-dev
+  ecrRegistry: 794558722040.dkr.ecr.us-east-1.amazonaws.com
+  imageTag: latest
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: aws-ecr-secret
+
+# ------------------------------------------------------------------------------
+# PostgreSQL Database Configuration
+# ------------------------------------------------------------------------------
+database:
+  enabled: true
+  image: postgres:15-alpine
+  port: 5432
+  user: postgres
+  password: HealthShieldSecureDB2026!
+  dbName: auth_db
+  storage:
+    storageClassName: gp3
+    size: 5Gi
+
+# ------------------------------------------------------------------------------
+# Kafka KRaft Broker Configuration
+# ------------------------------------------------------------------------------
+kafka:
+  enabled: true
+  image: bitnami/kafka:3.7.0
+  port: 9092
+  controllerPort: 9093
+  clusterId: "abcdefghijklmnopqrstuv"
+
+# ------------------------------------------------------------------------------
+# Microservices Configuration
+# ------------------------------------------------------------------------------
+services:
+  gateway:
+    name: gateway
+    port: 3001
+    replicas: 1
+    cpu: 100m
+    memory: 256Mi
+  
+  frontend:
+    name: frontend
+    port: 3000
+    replicas: 1
+    cpu: 100m
+    memory: 256Mi
+
+  auth:
+    name: auth
+    port: 3002
+    replicas: 1
+    dbName: auth_db
+    cpu: 100m
+    memory: 256Mi
+
+  policyService:
+    name: policy-service
+    port: 3003
+    replicas: 1
+    dbName: policies_db
+    cpu: 100m
+    memory: 256Mi
+
+  claimService:
+    name: claim-service
+    port: 3004
+    replicas: 1
+    dbName: claims_db
+    cpu: 100m
+    memory: 256Mi
+
+  memberService:
+    name: member-service
+    port: 3005
+    replicas: 1
+    dbName: members_db
+    cpu: 100m
+    memory: 256Mi
+
+  billingService:
+    name: billing-service
+    port: 3006
+    replicas: 1
+    dbName: billing_db
+    cpu: 100m
+    memory: 256Mi
+
+  hospitalService:
+    name: hospital-service
+    port: 3008
+    replicas: 1
+    dbName: hospitals_db
+    cpu: 100m
+    memory: 256Mi
+
+  documentService:
+    name: document-service
+    port: 3009
+    replicas: 1
+    dbName: documents_db
+    cpu: 100m
+    memory: 256Mi
+
+  supportService:
+    name: support-service
+    port: 3010
+    replicas: 1
+    dbName: support_db
+    cpu: 100m
+    memory: 256Mi
+
+# ------------------------------------------------------------------------------
+# Observability & Integrations
+# ------------------------------------------------------------------------------
+integrations:
+  jira:
+    baseUrl: "https://kumarh5149.atlassian.net"
+    email: "kumarh5149@gmail.com"
+  loki:
+    pushUrl: "http://loki:3100/loki/api/v1/push"
+  s3:
+    kafkaBucket: "healthshield-kafka-events-794558722040"
+    documentsBucket: "healthshield-documents-794558722040"
+
+# ------------------------------------------------------------------------------
+# OpenShift Route Exposure
+# ------------------------------------------------------------------------------
+routes:
+  enabled: true
+  termination: edge
