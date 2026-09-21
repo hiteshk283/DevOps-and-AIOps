@@ -4,6 +4,20 @@ This document contains a categorized reference of all CLI commands executed and 
 
 ---
 
+## Quick Reference: Essential URLs
+
+| Service / Console | URL |
+| :--- | :--- |
+| **GitHub Repository** | [https://github.com/hiteshk283/DevOps-and-AIOps](https://github.com/hiteshk283/DevOps-and-AIOps) |
+| **GitHub Actions** | [https://github.com/hiteshk283/DevOps-and-AIOps/actions](https://github.com/hiteshk283/DevOps-and-AIOps/actions) |
+| **OpenShift Web Console** | [https://console-openshift-console.apps.rm1.0a51.p1.openshiftapps.com](https://console-openshift-console.apps.rm1.0a51.p1.openshiftapps.com) |
+| **Jenkins Web UI** | [https://jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com](https://jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com) |
+| **Jira Service Management** | [https://kumarh5149.atlassian.net](https://kumarh5149.atlassian.net) (Key: `OPS`) |
+| **Live Jira Ticket OPS-1** | [https://kumarh5149.atlassian.net/browse/OPS-1](https://kumarh5149.atlassian.net/browse/OPS-1) |
+| **Complete URLs Directory** | See [docs/REQUIRED_URLS.md](./REQUIRED_URLS.md) for all internal & external endpoints |
+
+---
+
 ## 1. AWS CLI & Terraform Teardown ($0 Cost Management)
 
 ### A. AWS CLI Inspection & Verification

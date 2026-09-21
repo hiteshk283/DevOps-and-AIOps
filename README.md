@@ -68,6 +68,7 @@ All technical deep dives, flowcharts, credentials mappings, and command historie
 
 | Document | Description |
 | :--- | :--- |
+| **[docs/REQUIRED_URLS.md](./docs/REQUIRED_URLS.md)** | **Master directory of all required URLs, web consoles, OpenShift Routes, APIs, and dashboards.** |
 | **[docs/COMMANDS_USED_TODAY.md](./docs/COMMANDS_USED_TODAY.md)** | **Master runbook containing all commands executed today across AWS, OpenShift, Helm, Docker, Git, and cURL.** |
 | **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | Comprehensive architectural breakdown, database schemas, and networking topology. |
 | **[docs/OPENSHIFT_DEPLOYMENT.md](./docs/OPENSHIFT_DEPLOYMENT.md)** | OpenShift deployment runbook, Helm install/uninstall, and Jenkins start/stop commands. |
