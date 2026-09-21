@@ -134,3 +134,10 @@ integrations:
 routes:
   enabled: true
   termination: edge
+
+# ------------------------------------------------------------------------------
+# Secrets Configuration
+# ------------------------------------------------------------------------------
+secrets:
+  create: false
+  existingSecret: healthshield-secrets
