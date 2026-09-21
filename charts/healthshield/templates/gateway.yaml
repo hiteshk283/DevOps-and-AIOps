@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.services.gateway.name }}
+  labels:
+    app: {{ .Values.services.gateway.name }}
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: {{ .Values.services.gateway.port }}
+      targetPort: {{ .Values.services.gateway.port }}
+      name: http
+  selector:
+    app: {{ .Values.services.gateway.name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.services.gateway.name }}
+  labels:
+    app: {{ .Values.services.gateway.name }}
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.gateway.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ .Values.services.gateway.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.services.gateway.name }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.services.gateway.name }}
+          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.services.gateway.name }}:{{ .Values.global.imageTag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.services.gateway.port }}
+              name: http
+          env:
+            - name: GATEWAY_PORT
+              value: {{ .Values.services.gateway.port | quote }}
+            - name: AUTH_SERVICE_URL
+              value: "http://auth:3002"
+            - name: POLICIES_SERVICE_URL
+              value: "http://policy-service:3003"
+            - name: CLAIMS_SERVICE_URL
+              value: "http://claim-service:3004"
+            - name: MEMBERS_SERVICE_URL
+              value: "http://member-service:3005"
+            - name: BILLING_SERVICE_URL
+              value: "http://billing-service:3006"
+            - name: HOSPITALS_SERVICE_URL
+              value: "http://hospital-service:3008"
+            - name: DOCUMENTS_SERVICE_URL
+              value: "http://document-service:3009"
+            - name: SUPPORT_SERVICE_URL
+              value: "http://support-service:3010"
+            - name: LOKI_PUSH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: LOKI_PUSH_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: {{ .Values.services.gateway.cpu | default "200m" }}
+              memory: {{ .Values.services.gateway.memory | default "256Mi" }}

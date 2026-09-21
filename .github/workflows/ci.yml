@@ -1,0 +1,78 @@
+name: HealthShield CI Pipeline (GitHub Actions -> AWS ECR)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "794558722040"
+  ECR_REGISTRY: "794558722040.dkr.ecr.us-east-1.amazonaws.com"
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-push-ecr:
+    name: Build & Push to Amazon ECR
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth
+          - gateway
+          - policy-service
+          - claim-service
+          - member-service
+          - hospital-service
+          - billing-service
+          - document-service
+          - support-service
+          - frontend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | \
+          docker login --username AWS \
+          --password-stdin $ECR_REGISTRY
+
+      - name: Build and Push Docker Image
+        run: |
+          if [ "${{ matrix.service }}" == "frontend" ]; then
+            BUILD_PATH="frontend"
+          else
+            BUILD_PATH="backend/services/${{ matrix.service }}"
+          fi
+
+          echo "Building ${{ matrix.service }} from $BUILD_PATH..."
+          docker build \
+            -t $ECR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG \
+            -t $ECR_REGISTRY/${{ matrix.service }}:latest \
+            $BUILD_PATH
+
+          echo "Pushing ${{ matrix.service }} to AWS ECR..."
+          docker push $ECR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG
+          docker push $ECR_REGISTRY/${{ matrix.service }}:latest
+
+  trigger-jenkins-cd:
+    name: Trigger Jenkins CD Deployment
+    needs: build-and-push-ecr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Jenkins CD Orchestrator
+        run: |
+          echo "All 10 container images pushed to Amazon ECR successfully."
+          echo "Triggering Jenkins CD pipeline on OpenShift..."
+          curl -k -X POST "https://jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com/job/healthshield-cd/buildWithParameters?IMAGE_TAG=$IMAGE_TAG" || true

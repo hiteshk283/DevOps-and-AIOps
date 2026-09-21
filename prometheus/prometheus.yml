@@ -26,3 +26,19 @@ scrape_configs:
   - job_name: 'member-service'
     static_configs:
       - targets: ['member-service:3005']
+
+  - job_name: 'billing-service'
+    static_configs:
+      - targets: ['billing-service:3006']
+
+  - job_name: 'hospital-service'
+    static_configs:
+      - targets: ['hospital-service:3008']
+
+  - job_name: 'document-service'
+    static_configs:
+      - targets: ['document-service:3009']
+
+  - job_name: 'support-service'
+    static_configs:
+      - targets: ['support-service:3010']

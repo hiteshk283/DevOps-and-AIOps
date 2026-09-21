@@ -1,0 +1,8 @@
+apiVersion: v2
+name: healthshield
+description: Enterprise Health Insurance & Healthcare Microservices Platform for OpenShift
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: HealthShield DevOps Team

@@ -1,0 +1,122 @@
+# ==============================================================================
+# OPENSHIFT CLUSTER IP SERVICES FOR ALL MICROSERVICES
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  ports:
+    - port: 3001
+      targetPort: 3001
+      name: http
+  selector:
+    app: gateway
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+  selector:
+    app: frontend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth
+spec:
+  ports:
+    - port: 3002
+      targetPort: 3002
+      name: http
+  selector:
+    app: auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: policy-service
+spec:
+  ports:
+    - port: 3003
+      targetPort: 3003
+      name: http
+  selector:
+    app: policy-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: claim-service
+spec:
+  ports:
+    - port: 3004
+      targetPort: 3004
+      name: http
+  selector:
+    app: claim-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: member-service
+spec:
+  ports:
+    - port: 3005
+      targetPort: 3005
+      name: http
+  selector:
+    app: member-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing-service
+spec:
+  ports:
+    - port: 3006
+      targetPort: 3006
+      name: http
+  selector:
+    app: billing-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hospital-service
+spec:
+  ports:
+    - port: 3008
+      targetPort: 3008
+      name: http
+  selector:
+    app: hospital-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: document-service
+spec:
+  ports:
+    - port: 3009
+      targetPort: 3009
+      name: http
+  selector:
+    app: document-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: support-service
+spec:
+  ports:
+    - port: 3010
+      targetPort: 3010
+      name: http
+  selector:
+    app: support-service

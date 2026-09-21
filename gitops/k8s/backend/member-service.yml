@@ -1,31 +1,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: policy-service
+  name: member-service
   namespace: health-insurance
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: policy-service
+      app: member-service
   template:
     metadata:
       labels:
-        app: policy-service
+        app: member-service
     spec:
       containers:
-        - name: policy-service
-          image: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/product-service:latest
+        - name: member-service
+          image: 794558722040.dkr.ecr.us-east-1.amazonaws.com/member-service:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 3003
+            - containerPort: 3005
           env:
             - name: PORT
-              value: "3003"
+              value: "3005"
             - name: DB_HOST
               value: postgres
             - name: DB_NAME
-              value: policies_db
+              value: members_db
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
@@ -46,23 +46,23 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 3003
+              port: 3005
             initialDelaySeconds: 5
             periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: policy-service
+  name: member-service
   namespace: health-insurance
   labels:
-    app: policy-service
+    app: member-service
 spec:
   selector:
-    app: policy-service
+    app: member-service
   ports:
     - name: http
       protocol: TCP
-      port: 3003
-      targetPort: 3003
+      port: 3005
+      targetPort: 3005
   type: ClusterIP

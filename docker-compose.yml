@@ -140,7 +140,94 @@ services:
       postgres:
         condition: service_healthy
 
-  # 8. API Gateway
+  # 8. Hospital Network Service
+  hospital-service:
+    build:
+      context: ./backend/services/hospital-service
+      dockerfile: Dockerfile
+    container_name: insurance-hospital-service
+    ports:
+      - "3008:3008"
+    environment:
+      - PORT=3008
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=hospitals_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres123
+    networks:
+      - insurance-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 9. Billing & Payments Service
+  billing-service:
+    build:
+      context: ./backend/services/billing-service
+      dockerfile: Dockerfile
+    container_name: insurance-billing-service
+    ports:
+      - "3006:3006"
+    environment:
+      - PORT=3006
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=billing_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres123
+      - AWS_S3_KAFKA_BUCKET=healthshield-kafka-events-794558722040
+    networks:
+      - insurance-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 10. Document Vault & Consent Service
+  document-service:
+    build:
+      context: ./backend/services/document-service
+      dockerfile: Dockerfile
+    container_name: insurance-document-service
+    ports:
+      - "3009:3009"
+    environment:
+      - PORT=3009
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=documents_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres123
+      - AWS_S3_DOCUMENTS_BUCKET=healthshield-documents-794558722040
+    networks:
+      - insurance-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 11. Support & Jira Service Desk
+  support-service:
+    build:
+      context: ./backend/services/support-service
+      dockerfile: Dockerfile
+    container_name: insurance-support-service
+    ports:
+      - "3010:3010"
+    environment:
+      - PORT=3010
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=support_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres123
+      - JIRA_PROJECT_KEY=HS
+    networks:
+      - insurance-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 12. API Gateway
   gateway:
     build:
       context: ./backend/services/gateway
@@ -154,6 +241,10 @@ services:
       - POLICIES_SERVICE_URL=http://policy-service:3003
       - CLAIMS_SERVICE_URL=http://claim-service:3004
       - MEMBERS_SERVICE_URL=http://member-service:3005
+      - BILLING_SERVICE_URL=http://billing-service:3006
+      - HOSPITALS_SERVICE_URL=http://hospital-service:3008
+      - DOCUMENTS_SERVICE_URL=http://document-service:3009
+      - SUPPORT_SERVICE_URL=http://support-service:3010
     networks:
       - insurance-network
     depends_on:
@@ -161,8 +252,12 @@ services:
       - policy-service
       - claim-service
       - member-service
+      - hospital-service
+      - billing-service
+      - document-service
+      - support-service
 
-  # 9. Frontend React App
+  # 13. Frontend React App
   frontend:
     build:
       context: ./frontend

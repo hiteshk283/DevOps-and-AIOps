@@ -1,0 +1,49 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: healthshield-connect
+  namespace: health-insurance
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+spec:
+  version: 3.7.0
+  replicas: 1
+  bootstrapServers: healthshield-kafka-kafka-bootstrap:9092
+  config:
+    group.id: healthshield-connect-cluster
+    offset.storage.topic: connect-cluster-offsets
+    config.storage.topic: connect-cluster-configs
+    status.storage.topic: connect-cluster-status
+    config.storage.replication.factor: 1
+    offset.storage.replication.factor: 1
+    status.storage.replication.factor: 1
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: false
+    value.converter.schemas.enable: false
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: aws-s3-sink-connector
+  namespace: health-insurance
+  labels:
+    strimzi.io/cluster: healthshield-connect
+spec:
+  class: io.confluent.connect.s3.S3SinkConnector
+  tasksMax: 2
+  config:
+    topics: payment.events,claim.events,policy.events
+    s3.bucket.name: healthshield-kafka-events-794558722040
+    s3.region: us-east-1
+    s3.part.size: 5242880 # 5MB
+    flush.size: 1000
+    storage.class: io.confluent.connect.s3.storage.S3Storage
+    format.class: io.confluent.connect.s3.format.json.JsonFormat
+    partitioner.class: io.confluent.connect.storage.partitioner.TimeBasedPartitioner
+    path.format: "'year'=YYYY/'month'=MM/'day'=dd"
+    partition.duration.ms: 86400000
+    locale: en-US
+    timezone: UTC
+    aws.access.key.id: "${file:/opt/kafka/external-configuration/aws-credentials/aws-credentials.properties:AWS_ACCESS_KEY_ID}"
+    aws.secret.access.key: "${file:/opt/kafka/external-configuration/aws-credentials/aws-credentials.properties:AWS_SECRET_ACCESS_KEY}"

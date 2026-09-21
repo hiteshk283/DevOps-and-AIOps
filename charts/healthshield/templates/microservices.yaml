@@ -1,0 +1,114 @@
+{{- $root := . -}}
+{{- $services := dict 
+    "auth" .Values.services.auth 
+    "policy-service" .Values.services.policyService 
+    "claim-service" .Values.services.claimService 
+    "member-service" .Values.services.memberService 
+    "billing-service" .Values.services.billingService 
+    "hospital-service" .Values.services.hospitalService 
+    "document-service" .Values.services.documentService 
+    "support-service" .Values.services.supportService 
+-}}
+
+{{- range $svcName, $svc := $services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc.name }}
+  labels:
+    app: {{ $svc.name }}
+    {{- include "healthshield.labels" $root | nindent 4 }}
+spec:
+  ports:
+    - port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+      name: http
+  selector:
+    app: {{ $svc.name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $svc.name }}
+  labels:
+    app: {{ $svc.name }}
+    {{- include "healthshield.labels" $root | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $svc.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $svc.name }}
+    spec:
+      {{- if $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml $root.Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $svc.name }}
+          image: "{{ $root.Values.global.ecrRegistry }}/{{ $svc.name }}:{{ $root.Values.global.imageTag }}"
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ $svc.port }}
+              name: http
+          env:
+            - name: PORT
+              value: {{ $svc.port | quote }}
+            - name: DB_HOST
+              value: "postgres"
+            - name: DB_NAME
+              value: {{ $svc.dbName | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" $root }}-secrets
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" $root }}-secrets
+                  key: DB_PASSWORD
+            - name: KAFKA_BROKER
+              value: "kafka:9092"
+            - name: LOKI_PUSH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" $root }}-secrets
+                  key: LOKI_PUSH_URL
+            - name: JIRA_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" $root }}-secrets
+                  key: JIRA_BASE_URL
+            - name: JIRA_USER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" $root }}-secrets
+                  key: JIRA_USER_EMAIL
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" $root }}-secrets
+                  key: JIRA_API_TOKEN
+            - name: AWS_S3_KAFKA_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" $root }}-secrets
+                  key: AWS_S3_KAFKA_BUCKET
+            - name: AWS_S3_DOCUMENTS_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" $root }}-secrets
+                  key: AWS_S3_DOCUMENTS_BUCKET
+          resources:
+            requests:
+              cpu: {{ $svc.cpu | default "50m" }}
+              memory: 128Mi
+            limits:
+              cpu: {{ $svc.cpu | default "200m" }}
+              memory: {{ $svc.memory | default "256Mi" }}
+{{- end }}
