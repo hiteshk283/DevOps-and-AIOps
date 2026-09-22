@@ -80,17 +80,46 @@ pipeline {
             }
         }
 
-        stage('6. Notify Jira Service Management') {
+        stage('6. Open Deployment Audit Ticket in Jira') {
             steps {
-                echo "Posting deployment status to Jira ticket ${JIRA_ISSUE_KEY}..."
+                echo "Opening deployment audit ticket in Jira Service Management..."
                 sh '''
                     if [ -n "${JIRA_API_TOKEN}" ] && [ -n "${JIRA_BASE_URL}" ]; then
-                        AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64)
-                        curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ISSUE_KEY}/comment" \
+                        AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64 | tr -d '\r\n')
+                        RESP=$(curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue" \
                             -H "Authorization: Basic ${AUTH}" \
                             -H "Content-Type: application/json" \
-                            -d '{"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"[Jenkins CD] HealthShield release deployed successfully to OpenShift namespace: '${NAMESPACE}'. Image Tag: '${IMAGE_TAG}'. Release: #'${BUILD_NUMBER}'"}]}]}}' || true
-                        echo "Jira issue updated."
+                            -H "Accept: application/json" \
+                            -d '{
+                                "fields": {
+                                    "project": { "key": "OPS" },
+                                    "summary": "[Jenkins CD] HealthShield release deployed to '${NAMESPACE}' (Build #'${BUILD_NUMBER}')",
+                                    "description": {
+                                        "type": "doc",
+                                        "version": 1,
+                                        "content": [
+                                            {
+                                                "type": "paragraph",
+                                                "content": [
+                                                    { "type": "text", "text": "HealthShield microservices release #'${BUILD_NUMBER}' deployed via Helm with Image Tag: '${IMAGE_TAG}' to OpenShift namespace '${NAMESPACE}'." }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "issuetype": { "name": "Task" }
+                                }
+                            }')
+                        TICKET_KEY=$(echo "$RESP" | grep -o '"key":"[^"]*"' | head -n 1 | cut -d'"' -f4)
+                        if [ -n "$TICKET_KEY" ]; then
+                            echo "✅ Successfully opened Jira ticket: ${TICKET_KEY} (${JIRA_BASE_URL}/browse/${TICKET_KEY})"
+                            # Transition to Done (ID 61)
+                            curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue/${TICKET_KEY}/transitions" \
+                                -H "Authorization: Basic ${AUTH}" \
+                                -H "Content-Type: application/json" \
+                                -d '{"transition":{"id":"61"}}' >/dev/null || true
+                        else
+                            echo "⚠️ Could not create Jira ticket. Response: $RESP"
+                        fi
                     else
                         echo "Jira credentials not set, skipping Jira notification."
                     fi
