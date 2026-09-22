@@ -528,6 +528,25 @@ Creates all 11 container image repositories in AWS ECR (`us-east-1`), enabling p
 
 ---
 
+### Command 6.3: Force Deleting All 11 ECR Repositories ($0 Cost Maintenance)
+```bash
+for repo in $(aws ecr describe-repositories --region us-east-1 --query 'repositories[].repositoryName' --output text); do
+  echo "Deleting ECR repository: $repo..."
+  aws ecr delete-repository --repository-name "$repo" --force --region us-east-1
+done
+
+# Confirm all repositories are destroyed
+aws ecr describe-repositories --region us-east-1 --query 'repositories[].repositoryName' --output json
+```
+#### Output:
+```json
+[]
+```
+#### Explanation:
+Force-deletes all 11 container image repositories and their image layers from Amazon ECR in `us-east-1`, ensuring no dangling storage charges accrue under AWS account `794558722040`.
+
+---
+
 ## 7. GitHub Actions CI Matrix Pipeline Execution
 
 ### Command 7.1: Triggering CI Build via workflow_dispatch
