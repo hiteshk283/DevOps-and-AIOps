@@ -143,16 +143,30 @@ def resolve_jira_issue(issue_key: str, resolution_note: str) -> Dict[str, Any]:
             data = json.loads(resp.read().decode("utf-8"))
             transitions = data.get("transitions", [])
 
-        # Find target transition (e.g., "Done", "Resolve this issue", "Closed", "Resolved", "Mark as done")
+        # Find target transition to Done (ID 61, 111, or name matches done/resolve/closed)
         target_trans = None
         for t in transitions:
+            t_id = str(t.get("id"))
             t_name = t.get("name", "").lower()
-            if any(k in t_name for k in ["resolve", "done", "close", "complete", "mark as done"]):
+            to_name = t.get("to", {}).get("name", "").lower()
+            if t_id in ["61", "111"] or "done" in to_name or any(k in t_name for k in ["done", "resolve", "closed", "complete", "mark as done"]):
                 target_trans = t
                 break
 
-        if not target_trans and transitions:
-            target_trans = transitions[0]  # Fallback to first available transition
+        # If ticket is in Pending (where direct Done is not available), first move to In Progress (11) then Done (61)
+        if not target_trans:
+            wip_trans = next((t for t in transitions if str(t.get("id")) in ["11", "31"] or "progress" in t.get("name", "").lower()), None)
+            if wip_trans:
+                urllib.request.urlopen(urllib.request.Request(
+                    trans_url,
+                    data=json.dumps({"transition": {"id": wip_trans["id"]}}).encode("utf-8"),
+                    headers={"Authorization": _get_auth_header(), "Content-Type": "application/json", "Accept": "application/json"},
+                    method="POST"
+                ), timeout=20)
+                # Re-fetch transitions from Work in progress state
+                with urllib.request.urlopen(req, timeout=20) as resp2:
+                    transitions2 = json.loads(resp2.read().decode("utf-8")).get("transitions", [])
+                    target_trans = next((t for t in transitions2 if str(t.get("id")) in ["61", "111"] or "done" in t.get("to", {}).get("name", "").lower()), None)
 
         if target_trans:
             post_trans_req = urllib.request.Request(
@@ -243,12 +257,13 @@ def transition_jira_issue(issue_key: str, target_state_keyword: str) -> Dict[str
         for t in transitions:
             t_name = t.get("name", "").lower()
             to_name = t.get("to", {}).get("name", "").lower()
-            if kw in t_name or kw in to_name:
+            if kw in ["investigate", "progress", "start"]:
+                if any(x in t_name or x in to_name for x in ["progress", "investigate", "in progress"]):
+                    target_trans = t
+                    break
+            elif kw in t_name or kw in to_name:
                 target_trans = t
                 break
-
-        if not target_trans and transitions:
-            target_trans = transitions[0]
 
         if target_trans:
             post_req = urllib.request.Request(
