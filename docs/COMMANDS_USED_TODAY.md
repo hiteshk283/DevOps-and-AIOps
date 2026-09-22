@@ -700,3 +700,74 @@ Destroy complete! Resources: 14 destroyed.
 ```
 #### Explanation:
 Ensures all AWS billable resources are destroyed when not in active use, keeping AWS costs strictly at $0 while compute runs on Red Hat OpenShift.
+
+---
+
+## 12. GitOps, Jenkins Pipelines, and Terraform Full Synchronization & Audit
+
+### Command 12.1: OpenShift Secret Patching (Adding Missing Keys for Deployments)
+```bash
+oc set data secret/healthshield-secrets \
+  DB_USER="cG9zdGdyZXM=" \
+  LOKI_PUSH_URL="aHR0cDovL2xva2k6MzEwMC9sb2tpL2FwaS92MS9wdXNo" \
+  -n kumarh5149-dev
+```
+#### Output:
+```text
+secret/healthshield-secrets data updated
+```
+#### Explanation:
+Adds `DB_USER` (`postgres`) and `LOKI_PUSH_URL` (`http://loki:3100/loki/api/v1/push`) base64 values to the live `healthshield-secrets` secret on OpenShift, ensuring that microservices and PostgreSQL containers start without `CreateContainerConfigError`.
+
+---
+
+### Command 12.2: Validating GitOps Kustomize Build & Server Dry-Run
+```bash
+# 1. Verify Kustomize compiles all resources without cluster-scope errors
+oc kustomize gitops
+
+# 2. Execute dry-run server validation against OpenShift Developer Sandbox
+oc apply --dry-run=server -k gitops
+```
+#### Output:
+```text
+configmap/grafana-dashboards created (server dry run)
+configmap/postgres-init-scripts created (server dry run)
+secret/insurance-secrets created (server dry run)
+service/auth created (server dry run)
+service/claim-service created (server dry run)
+service/frontend created (server dry run)
+service/gateway created (server dry run)
+service/member-service created (server dry run)
+service/policy-service created (server dry run)
+service/postgres created (server dry run)
+deployment.apps/auth created (server dry run)
+deployment.apps/claim-service created (server dry run)
+deployment.apps/frontend created (server dry run)
+deployment.apps/gateway created (server dry run)
+deployment.apps/member-service created (server dry run)
+deployment.apps/policy-service created (server dry run)
+statefulset.apps/insurance-postgres created (server dry run)
+servicemonitor.monitoring.coreos.com/healthshield-services created (server dry run)
+route.route.openshift.io/healthshield-frontend-route created (server dry run)
+route.route.openshift.io/healthshield-gateway-route created (server dry run)
+```
+#### Explanation:
+Confirms that all 20 GitOps resources pass admission control on the active OpenShift Developer Sandbox cluster (`kumarh5149-dev`) without any cluster-admin namespace permission failures or schema discrepancies.
+
+---
+
+### Command 12.3: Validating Terraform Plan ($0 Compute Cost Alignment)
+```bash
+cd infrastructure
+terraform validate
+terraform plan
+```
+#### Output:
+```text
+Success! The configuration is valid.
+Plan: 24 to add, 0 to change, 0 to destroy.
+```
+#### Explanation:
+Verifies that only storage (`s3`), access control (`iam`), and image registry (`ecr` - 11 repos) modules are configured, with EKS, VPC, and AWS-managed ArgoCD remaining deactivated to guarantee $0 AWS compute spend.
+

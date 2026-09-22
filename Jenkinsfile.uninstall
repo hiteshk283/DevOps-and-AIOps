@@ -75,6 +75,16 @@ pipeline {
             steps {
                 echo "Opening teardown audit ticket in Jira Service Management..."
                 sh '''
+                    if [ -z "${JIRA_BASE_URL}" ]; then
+                        JIRA_BASE_URL="https://kumarh5149.atlassian.net"
+                    fi
+                    if [ -z "${JIRA_USER_EMAIL}" ]; then
+                        JIRA_USER_EMAIL="kumarh5149@gmail.com"
+                    fi
+                    if [ -z "${JIRA_API_TOKEN}" ]; then
+                        JIRA_API_TOKEN=$(oc get secret healthshield-secrets -n ${TARGET_NAMESPACE} -o jsonpath='{.data.JIRA_API_TOKEN}' 2>/dev/null | base64 -d || true)
+                    fi
+
                     if [ -n "${JIRA_API_TOKEN}" ] && [ -n "${JIRA_BASE_URL}" ]; then
                         AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64 | tr -d '\r\n')
                         RESP=$(curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue" \
