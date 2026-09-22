@@ -283,12 +283,91 @@ def run_pr_review_workflow(
     }
 
 
-# Standalone runner for GitHub Actions
+def get_or_create_pr_for_branch(
+    repo: str,
+    branch: str,
+    base_branch: str,
+    token: str,
+    commit_msg: Optional[str] = None
+) -> Optional[int]:
+    """Find an existing open PR for branch -> base_branch, or automatically create one."""
+    headers = _get_github_headers(token)
+    owner = repo.split("/")[0]
+
+    # 1. Search for existing open PR from this head branch
+    query_url = f"{GITHUB_API_URL}/repos/{repo}/pulls?head={owner}:{branch}&state=open"
+    req = urllib.request.Request(query_url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            prs = json.loads(resp.read().decode("utf-8"))
+            if prs and len(prs) > 0:
+                pr_number = prs[0]["number"]
+                print(f"🔍 Found existing open PR #{pr_number} for branch '{branch}'.")
+                return pr_number
+    except Exception as e:
+        print(f"⚠️ Error checking open PRs: {e}")
+
+    # 2. No open PR found -> automatically open one
+    title = commit_msg.strip().split("\n")[0] if commit_msg else f"feat: updates on {branch}"
+    if len(title) > 80:
+        title = title[:77] + "..."
+    if not title.startswith(("feat", "fix", "chore", "docs", "refactor", "ci")):
+        title = f"feat: {title}"
+
+    payload = {
+        "title": f"{title} [AIOps Auto-PR]",
+        "head": branch,
+        "base": base_branch,
+        "body": f"### 🤖 Automated Pull Request\nOpened automatically upon code push to `{branch}`.\nAssigned to Gemini AI Agent Swarm for code review, Jira tracking, and GitOps auto-merge."
+    }
+
+    post_url = f"{GITHUB_API_URL}/repos/{repo}/pulls"
+    post_req = urllib.request.Request(
+        post_url,
+        headers=headers,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(post_req, timeout=15) as resp:
+            new_pr = json.loads(resp.read().decode("utf-8"))
+            pr_number = new_pr.get("number")
+            print(f"🚀 Automatically created new Pull Request #{pr_number}: {new_pr.get('html_url')}")
+            return pr_number
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        print(f"⚠️ Could not create PR automatically ({e.code}): {err_body}")
+        return None
+    except Exception as e:
+        print(f"⚠️ Unexpected error creating PR: {e}")
+        return None
+
+
+# Standalone runner for GitHub Actions (supports both push & pull_request events)
 if __name__ == "__main__":
     repo_name = os.getenv("REPO_FULL_NAME") or os.getenv("GITHUB_REPOSITORY") or "hiteshk283/DevOps-and-AIOps"
     pr_num_str = os.getenv("PR_NUMBER")
+    branch_name = os.getenv("BRANCH_NAME") or os.getenv("GITHUB_REF_NAME")
+    commit_msg = os.getenv("COMMIT_MESSAGE")
     gh_token = os.getenv("GITHUB_TOKEN")
     gemini_key = os.getenv("GEMINI_API_KEY")
+
+    # If PR_NUMBER is not set directly (e.g. triggered on branch push event)
+    if not pr_num_str or pr_num_str.strip() in ("", "null", "None"):
+        if branch_name and branch_name != "main" and gh_token:
+            print(f"📦 Triggered on branch push to '{branch_name}'. Searching or creating PR...")
+            auto_pr = get_or_create_pr_for_branch(
+                repo=repo_name,
+                branch=branch_name,
+                base_branch="main",
+                token=gh_token,
+                commit_msg=commit_msg
+            )
+            if auto_pr:
+                pr_num_str = str(auto_pr)
+            else:
+                print(f"ℹ️ No active PR or unmerged diffs for branch '{branch_name}'. Exiting cleanly.")
+                sys.exit(0)
 
     if repo_name and pr_num_str and gh_token:
         try:
