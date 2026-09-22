@@ -211,7 +211,7 @@ def run_pr_review_workflow(
     print(f"🎫 Jira Ticket Opened: {jira_key} ({jira_res.get('url')})")
 
     if jira_key:
-        transition_jira_issue(jira_key, "investigate")
+        transition_jira_issue(jira_key, "progress")
 
     # 3. Run AI Review
     review = review_code_with_gemini(pr_info, api_key=gemini_key)
