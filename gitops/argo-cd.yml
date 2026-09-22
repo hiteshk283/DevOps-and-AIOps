@@ -11,9 +11,11 @@ spec:
     path: gitops
   destination:
     server: 'https://kubernetes.default.svc'
-    namespace: health-insurance
-  syncPolicy: {}
-  # syncPolicy:
-  #   automated:
-  #     prune: true
-  #     selfHeal: true
+    namespace: kumarh5149-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true

@@ -39,3 +39,63 @@ spec:
   config:
     retention.ms: 604800000
     segment.bytes: 1073741824
+
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: underwriting.events
+  namespace: health-insurance
+  labels:
+    strimzi.io/cluster: healthshield-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000 # 7 days
+    segment.bytes: 1073741824
+
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: analytics.events
+  namespace: health-insurance
+  labels:
+    strimzi.io/cluster: healthshield-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000 # 7 days
+    segment.bytes: 1073741824
+
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audit.events
+  namespace: health-insurance
+  labels:
+    strimzi.io/cluster: healthshield-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000 # 7 days
+    segment.bytes: 1073741824
+
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: claim.dlq.events
+  namespace: health-insurance
+  labels:
+    strimzi.io/cluster: healthshield-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000 # 7 days
+    segment.bytes: 1073741824

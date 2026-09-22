@@ -1,31 +1,34 @@
 """
-HealthShield AIOps Assistant — Streamlit Chat UI
-Supports Dual AI Backends:
-  1. Google Antigravity / Gemini Engine (Fast, Local & Free, No AWS charges)
-  2. AWS Bedrock Agent (Kira)
+HealthShield AIOps Multi-Agent Swarm Console
+Interactive Streamlit Mission Control Center
+Powered by Google Gemini Models & AWS Bedrock
+Agents: Apex Supervisor, Kira (SRE), Operator (Remediation), Nexus (Innovation), Adjudicator (Claims)
 """
 
 import streamlit as st
-import boto3
 import uuid
 import json
 import os
-from dotenv import load_dotenv
-from antigravity_agent import invoke_antigravity_agent
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+from agents.supervisor import route_and_execute
+from agents.sre_agent import diagnose_incident, get_system_telemetry
+from agents.remediation_agent import get_pending_proposals, approve_proposal, reject_proposal
+from agents.nexus_agent import analyze_market_opportunity, generate_policy_specification, publish_policy_to_catalog
+from agents.claims_agent import adjudicate_claim
 
 load_dotenv()
 
-# Config from environment
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-AGENT_ID = os.getenv("BEDROCK_AGENT_ID")
-AGENT_ALIAS_ID = os.getenv("BEDROCK_AGENT_ALIAS_ID")
-ANTIGRAVITY_API_KEY = os.getenv("ANTIGRAVITY_API_KEY") or os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("ANTIGRAVITY_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+NAMESPACE = os.getenv("K8S_NAMESPACE", "kumarh5149-dev")
 
 st.set_page_config(
-    page_title="HealthShield — AIOps SRE Assistant",
+    page_title="HealthShield — Multi-Agent Swarm",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -42,7 +45,7 @@ st.markdown("""
     }
 
     .main-header {
-        padding: 1rem 0;
+        padding: 0.8rem 0;
         border-bottom: 1px solid #1e293b;
         margin-bottom: 1rem;
     }
@@ -67,7 +70,7 @@ st.markdown("""
         background: #0f172a;
         border: 1px solid #1e293b;
         border-radius: 8px;
-        margin-bottom: 1.2rem;
+        margin-bottom: 1rem;
         font-family: 'JetBrains Mono', monospace;
         font-size: 0.78rem;
     }
@@ -78,123 +81,226 @@ st.markdown("""
         border-radius: 50%;
         box-shadow: 0 0 8px #10b981;
     }
+    .agent-chip {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        background: #1e293b;
+        border-radius: 4px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem;
+        color: #38bdf8;
+        margin-right: 0.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar Configuration
+# Sidebar
 with st.sidebar:
-    st.image("https://raw.githubusercontent.com/tandpfun/skill-icons/main/icons/Kubernetes.svg", width=50)
-    st.title("SRE Agent Settings")
+    st.image("https://raw.githubusercontent.com/tandpfun/skill-icons/main/icons/Kubernetes.svg", width=45)
+    st.title("🛡️ Swarm Settings")
+    
+    st.caption(f"Cluster: **OpenShift (OCP)** | Namespace: `{NAMESPACE}`")
     
     engine_choice = st.radio(
-        "Select AI Backend Engine:",
-        ["⚡ Antigravity / Gemini Engine", "☁️ AWS Bedrock Agent (Kira)"],
-        index=0,
-        help="Antigravity runs locally/via Gemini API without AWS Bedrock costs. AWS Bedrock connects to your cloud agent."
+        "Foundational LLM Engine:",
+        ["⚡ Google Gemini Swarm", "☁️ AWS Bedrock Agent (Legacy)"],
+        index=0
     )
     
     st.divider()
-    if "Antigravity" in engine_choice:
-        st.subheader("⚡ Antigravity Configuration")
-        api_key_input = st.text_input("Antigravity / Gemini API Key (Optional):", value=ANTIGRAVITY_API_KEY or "", type="password")
-        st.caption("Works offline in smart diagnostic mode even without an API key.")
-    else:
-        st.subheader("☁️ AWS Bedrock Configuration")
-        st.write(f"Region: `{AWS_REGION}`")
-        st.write(f"Agent ID: `{AGENT_ID or 'Not Set'}`")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
-
-@st.cache_resource
-def get_bedrock_client():
-    kwargs = {"service_name": "bedrock-agent-runtime", "region_name": AWS_REGION}
-    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
-        kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID
-        kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
-        if AWS_SESSION_TOKEN:
-            kwargs["aws_session_token"] = AWS_SESSION_TOKEN
-    return boto3.client(**kwargs)
-
-def invoke_bedrock(prompt: str) -> str:
-    if not (AGENT_ID and AGENT_ALIAS_ID):
-        return "⚠️ AWS Bedrock Agent is not configured. Set BEDROCK_AGENT_ID and BEDROCK_AGENT_ALIAS_ID in `.env`, or switch to the Antigravity Engine in the sidebar."
-    client = get_bedrock_client()
-    try:
-        response = client.invoke_agent(
-            agentId=AGENT_ID,
-            agentAliasId=AGENT_ALIAS_ID,
-            sessionId=st.session_state.session_id,
-            inputText=prompt,
-        )
-        full_response = ""
-        for event in response["completion"]:
-            if "chunk" in event and "bytes" in event["chunk"]:
-                full_response += event["chunk"]["bytes"].decode("utf-8")
-        return full_response
-    except Exception as e:
-        return f"⚠️ Error invoking Bedrock Agent: {str(e)}"
+    api_key_input = st.text_input(
+        "Gemini API Key (Optional):",
+        value=GEMINI_API_KEY or "",
+        type="password",
+        help="Works automatically in offline heuristic diagnostic & simulation mode if empty."
+    )
+    
+    st.markdown("##### 🤖 Active Agents in Swarm:")
+    st.markdown("• **👑 Apex Supervisor** (Orchestrator)")
+    st.markdown("• **🔍 Kira SRE** (Incident Diagnostics)")
+    st.markdown("• **🛠️ Operator** (Auto-Remediation)")
+    st.markdown("• **💡 Nexus** (Innovation & Growth)")
+    st.markdown("• **📋 Adjudicator** (Claims & Fraud)")
+    
+    pending_count = len(get_pending_proposals())
+    if pending_count > 0:
+        st.warning(f"⚠️ {pending_count} Tier-2 Action(s) Pending Approval!")
 
 # Header
 st.markdown("""
 <div class="main-header">
-    <h1>🛡️ KIRA — HealthShield SRE Assistant</h1>
-    <p>Automated Root Cause Analysis Engine for Health Insurance Microservices</p>
+    <h1>🛡️ HEALTHSHIELD — MULTI-AGENT AIOPS MISSION CONTROL</h1>
+    <p>Autonomous SRE Operations, Auto-Remediation, and Market Growth Swarm</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Active Status Bar
-is_antigravity = "Antigravity" in engine_choice
 st.markdown(f"""
 <div class="status-bar">
     <div class="status-dot"></div>
-    <span style="color: #38bdf8;">ACTIVE ENGINE: {'ANTIGRAVITY SRE ENGINE' if is_antigravity else 'AWS BEDROCK (KIRA)'}</span>
+    <span style="color: #38bdf8;">SWARM ACTIVE: 5 SPECIALIZED AGENTS ONLINE</span>
     <span style="color: #334155;">|</span>
-    <span style="color: #94a3b8;">Cluster: healthshield-eks</span>
+    <span style="color: #94a3b8;">Compute: Red Hat OpenShift ({NAMESPACE})</span>
     <span style="color: #334155;">|</span>
-    <span style="color: #94a3b8;">Namespace: health-insurance</span>
+    <span style="color: #94a3b8;">Storage: AWS S3 + Postgres</span>
 </div>
 """, unsafe_allow_html=True)
 
-# Quick Inquiries
-st.markdown("##### 🔍 Quick Diagnostic Inquiries:")
-col1, col2, col3 = st.columns(3)
+# Tabs
+tab_chat, tab_sre, tab_nexus, tab_governance = st.tabs([
+    "💬 Swarm Command Center",
+    "🔍 Kira SRE Incident Desk",
+    "💡 Nexus Innovation Lab",
+    f"⏳ Governance & Approvals ({pending_count})"
+])
 
-with col1:
-    if st.button("Check pod & deployment health"):
-        st.session_state.prompt_input = "Are all health-insurance pods and deployments healthy in healthshield-eks?"
-with col2:
-    if st.button("Investigate claim 503 errors"):
-        st.session_state.prompt_input = "Why are users getting 503 errors when submitting medical claims?"
-with col3:
-    if st.button("Check database connections"):
-        st.session_state.prompt_input = "Check database latency and connection pool status for policies_db and claims_db."
+# ------------------------------------------------------------------------------
+# TAB 1: Swarm Command Center
+# ------------------------------------------------------------------------------
+with tab_chat:
+    st.markdown("##### 🔍 Quick Multi-Agent Inquiries:")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("Diagnose 503 Claim Errors", use_container_width=True):
+            st.session_state.prompt_input = "Why are users getting 503 errors when submitting claims to claim-service?"
+    with col2:
+        if st.button("Propose Pod Rollout Restart", use_container_width=True):
+            st.session_state.prompt_input = "Propose a rollout restart for claim-service deployment in OpenShift."
+    with col3:
+        if st.button("Draft Freelancer Policy (Nexus)", use_container_width=True):
+            st.session_state.prompt_input = "Nexus, generate an affordable health policy for young freelancers with dental coverage."
+    with col4:
+        if st.button("Audit High-Value Cardiac Claim", use_container_width=True):
+            st.session_state.prompt_input = "Adjudicate a claim for Emergency Angioplasty of ₹2,85,000 for patient Rohan Sharma."
 
-# Render Chat History
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-user_input = st.chat_input("Ask Kira to investigate logs, metrics, or cluster health...")
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            if "badge" in msg:
+                st.markdown(f"<span class='agent-chip'>{msg['badge']}</span>", unsafe_allow_html=True)
+            st.markdown(msg["content"])
 
-if "prompt_input" in st.session_state and st.session_state.prompt_input:
-    user_input = st.session_state.prompt_input
-    st.session_state.prompt_input = None
+    user_input = st.chat_input("Ask any agent in the swarm (SRE, Remediation, Innovation, Claims)...")
+    if "prompt_input" in st.session_state and st.session_state.prompt_input:
+        user_input = st.session_state.prompt_input
+        st.session_state.prompt_input = None
 
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
+    if user_input:
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
 
-    with st.chat_message("assistant"):
-        spinner_msg = "Antigravity is querying telemetry and diagnosing..." if is_antigravity else "Kira is invoking Bedrock Agent..."
-        with st.spinner(spinner_msg):
-            if is_antigravity:
-                api_k = api_key_input if "api_key_input" in locals() and api_key_input else None
-                reply = invoke_antigravity_agent(user_input, api_key=api_k)
-            else:
-                reply = invoke_bedrock(user_input)
-            st.markdown(reply)
-            st.session_state.messages.append({"role": "assistant", "content": reply})
+        with st.chat_message("assistant"):
+            with st.spinner("Apex Supervisor is coordinating the swarm..."):
+                response = route_and_execute(user_input, api_key=api_key_input)
+                badge = response.get("agent_badge", "👑 APEX")
+                reply = response.get("reply", "No response generated.")
+
+                st.markdown(f"<span class='agent-chip'>{badge}</span>", unsafe_allow_html=True)
+                st.markdown(reply)
+
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": reply,
+                    "badge": badge
+                })
+
+# ------------------------------------------------------------------------------
+# TAB 2: Kira SRE Incident Desk
+# ------------------------------------------------------------------------------
+with tab_sre:
+    st.subheader("🔍 Live Cluster Telemetry & SRE Probes")
+    telemetry = get_system_telemetry()
+
+    # Metric summary row
+    m_col1, m_col2, m_col3 = st.columns(3)
+    with m_col1:
+        st.metric("Monitored Microservices", "9 Services", "All Probed")
+    with m_col2:
+        st.metric("OpenShift Namespace", NAMESPACE, "Active")
+    with m_col3:
+        st.metric("PostgreSQL Database", "Port 5432", "Online")
+
+    st.markdown("##### Microservice Health Check Grid:")
+    probes = telemetry.get("service_health_probes", {})
+    cols = st.columns(3)
+    for idx, (svc_name, data) in enumerate(probes.items()):
+        c = cols[idx % 3]
+        status = data.get("status")
+        is_healthy = status == "HEALTHY"
+        c.markdown(f"""
+        <div style="padding: 0.5rem; background: #0f172a; border-radius: 6px; border-left: 4px solid {'#10b981' if is_healthy else '#ef4444'}; margin-bottom: 0.5rem;">
+            <strong>{svc_name}</strong><br/>
+            <span style="font-size: 0.8rem; color: #94a3b8;">Status: {status} ({data.get('latency_ms', 0)}ms)</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if st.button("🚀 Trigger Full Automated SRE Root Cause Diagnosis"):
+        with st.spinner("Kira is correlating metrics and generating RCA..."):
+            diag = diagnose_incident("Full cluster health assessment", api_key=api_key_input)
+            st.markdown(diag["analysis"])
+
+# ------------------------------------------------------------------------------
+# TAB 3: Nexus Innovation Lab
+# ------------------------------------------------------------------------------
+with tab_nexus:
+    st.subheader("💡 Nexus Market Innovation & Consumer Growth Lab")
+    st.write("Formulate data-backed insurance products to capture underserved market demographics.")
+
+    inno_topic = st.text_input(
+        "Enter Target Demographic or Policy Concept:",
+        value="Tier-2/3 City Families seeking OPD & Dengue Monsoon Shield"
+    )
+    target_budget = st.slider("Target Monthly Premium (₹):", min_value=99, max_value=1499, value=349, step=50)
+
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("📊 Conduct Market Research & Persona Simulation", use_container_width=True):
+            with st.spinner("Nexus is researching competitors and running synthetic persona swarm..."):
+                res = analyze_market_opportunity(inno_topic, api_key=api_key_input)
+                st.markdown(res["research_report"])
+
+    with col_btn2:
+        if st.button("🛠️ Draft Policy Specification Schema", use_container_width=True):
+            with st.spinner("Nexus is formulating policy schema and plain-language clauses..."):
+                spec = generate_policy_specification(inno_topic, inno_topic, monthly_budget=target_budget, api_key=api_key_input)
+                policy_obj = spec["policy"]
+                st.session_state.drafted_policy = policy_obj
+                st.json(policy_obj)
+
+    if "drafted_policy" in st.session_state and st.session_state.drafted_policy:
+        st.success("Draft policy package generated!")
+        if st.button(f"🚀 Publish {st.session_state.drafted_policy.get('code')} to Live Policy Service Catalog"):
+            pub_res = publish_policy_to_catalog(st.session_state.drafted_policy)
+            st.success(pub_res["message"])
+
+# ------------------------------------------------------------------------------
+# TAB 4: Governance & Approvals
+# ------------------------------------------------------------------------------
+with tab_governance:
+    st.subheader("⏳ Human-in-the-Loop Governance Inbox")
+    st.write("High-impact cluster changes (Tier-2) require human engineer approval before execution.")
+
+    proposals = get_pending_proposals()
+    if not proposals:
+        st.info("✅ No pending remediation proposals. All systems running safely within autonomous bounds.")
+    else:
+        for prop in proposals:
+            with st.expander(f"⚠️ Action Required: {prop['action_type']} on {prop['target_service']} ({prop['id']})", expanded=True):
+                st.markdown(f"**Reason:** {prop['reason']}")
+                st.markdown(f"**Target Microservice:** `{prop['target_service']}`")
+                st.code(prop["command"], language="bash")
+                st.caption(f"Created At: {prop['created_at']}")
+
+                col_a, col_r = st.columns(2)
+                with col_a:
+                    if st.button("✅ Approve & Execute", key=f"app_{prop['id']}"):
+                        res = approve_proposal(prop["id"])
+                        st.success(res.get("message", "Executed successfully"))
+                        st.rerun()
+                with col_r:
+                    if st.button("❌ Reject Action", key=f"rej_{prop['id']}"):
+                        reject_proposal(prop["id"])
+                        st.warning("Proposal rejected and archived.")
+                        st.rerun()

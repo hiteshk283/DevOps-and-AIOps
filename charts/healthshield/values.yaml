@@ -127,6 +127,12 @@ integrations:
   s3:
     kafkaBucket: "healthshield-kafka-events-794558722040"
     documentsBucket: "healthshield-documents-794558722040"
+  gemini:
+    apiKey: ""
+    model: "gemini-3.6-flash"
+    flashModel: "gemini-3.6-flash"
+
+
 
 # ------------------------------------------------------------------------------
 # OpenShift Route Exposure
