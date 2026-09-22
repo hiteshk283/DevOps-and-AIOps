@@ -8,7 +8,7 @@ This document aggregates all web consoles, cluster APIs, CI/CD routes, external 
 
 | Platform | URL | Purpose / Notes |
 | :--- | :--- | :--- |
-| **GitHub Repository** | [https://github.com/hiteshk283/DevOps-and-AIOps](https://github.com/hiteshk283/DevOps-and-AIOps) | Main Git repository containing all code, Helm charts, and docs |
+| **GitHub Repository** | [https://github.com/hiteshk283/DevOps-and-AIOps](https://github.com/hiteshk283/DevOps-and-AIOps) | Main Git repository containing all code, Helm charts, and docs ||
 | **GitHub Actions** | [https://github.com/hiteshk283/DevOps-and-AIOps/actions](https://github.com/hiteshk283/DevOps-and-AIOps/actions) | Manual CI pipeline (`workflow_dispatch`) |
 | **Red Hat OpenShift Web Console** | [https://console-openshift-console.apps.rm1.0a51.p1.openshiftapps.com](https://console-openshift-console.apps.rm1.0a51.p1.openshiftapps.com) | Developer Sandbox Console (User: `kumarh5149`, Project: `kumarh5149-dev`) |
 | **OpenShift Kubernetes API** | `https://api.rm1.0a51.p1.openshiftapps.com:6443` | Target API server for `oc login` CLI authentication |
