@@ -1,4 +1,4 @@
-export type RoleType = 'CUSTOMER' | 'ENROLLMENT' | 'ADMIN' | 'DEVELOPER' | 'QA' | 'HOSPITAL';
+export type RoleType = 'CUSTOMER' | 'ENROLLMENT' | 'ADMIN' | 'DEVELOPER' | 'QA' | 'HOSPITAL' | 'AIOPS';
 
 export interface PolicyPlan {
   id: number;
@@ -220,4 +220,40 @@ export interface TestSuiteResult {
   status: 'IDLE' | 'RUNNING' | 'PASSED' | 'FAILED';
   durationMs?: number;
   tests: TestCase[];
+}
+
+// ==============================================================================
+// AIOps Multi-Agent Swarm Types
+// ==============================================================================
+export interface AgentInfo {
+  id: string;
+  name: string;
+  badge: string;
+  role: string;
+  status: string;
+}
+
+export interface AgentProposal {
+  id: string;
+  target_service: string;
+  action_type: string;
+  tier: number;
+  reason: string;
+  command: string;
+  status: 'PENDING_APPROVAL' | 'SUCCESS' | 'FAILED' | 'REJECTED' | 'AUTO_EXECUTED';
+  created_at: string;
+  executed_at?: string;
+  execution_result?: string;
+}
+
+export interface AgentChatMessage {
+  id: string;
+  sender: 'user' | 'agent';
+  agentBadge?: string;
+  agentName?: string;
+  text: string;
+  timestamp: string;
+  delegationTrace?: string[];
+  proposal?: AgentProposal;
+  draftPolicy?: any;
 }

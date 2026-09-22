@@ -85,6 +85,16 @@ export const ConsoleSwitcherModal: React.FC<ConsoleSwitcherModalProps> = ({
       description: 'Instant patient eligibility lookup by Member ID, room rent limit verification, and cashless pre-authorization voucher sanctions.',
       features: ['Instant Member Eligibility Verification', 'Remaining Coverage Balance Check', 'Emergency Pre-Auth Voucher Filing', 'Automated TPA Sanctions'],
       route: '#/hospital'
+    },
+    {
+      role: 'AIOPS',
+      icon: '🛡️',
+      title: 'AIOps Multi-Agent Swarm Console',
+      targetUser: 'Site Reliability Engineers, Growth Leads & Actuaries',
+      color: '#06b6d4',
+      description: 'Autonomous multi-agent system powered by Google Gemini models for real-time incident diagnosis, automated self-healing, and market policy innovation.',
+      features: ['5-Agent Autonomous Swarm (Apex, Kira, Operator, Nexus, Adjudicator)', 'Live Prometheus & Pod RCA Diagnostics', 'Tier-2 Human-in-the-Loop Approvals', 'Nexus Market Intelligence & Policy Formulation', '1-Click Direct Catalog Publishing'],
+      route: '#/aiops'
     }
   ];
 

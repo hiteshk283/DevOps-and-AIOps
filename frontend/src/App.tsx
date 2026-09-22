@@ -9,6 +9,7 @@ import { AdminConsole } from './components/admin/AdminConsole';
 import { DeveloperConsole } from './components/developer/DeveloperConsole';
 import { QAConsole } from './components/qa/QAConsole';
 import { HospitalConsole } from './components/hospital/HospitalConsole';
+import { AIOpsConsole } from './components/aiops/AIOpsConsole';
 
 export default function App() {
   // Current active role console
@@ -46,6 +47,8 @@ export default function App() {
         setCurrentRole('QA');
       } else if (hash.includes('hospital')) {
         setCurrentRole('HOSPITAL');
+      } else if (hash.includes('aiops') || hash.includes('agent') || hash.includes('swarm')) {
+        setCurrentRole('AIOPS');
       } else {
         setCurrentRole('CUSTOMER');
       }
@@ -66,6 +69,7 @@ export default function App() {
       DEVELOPER: '#/developer',
       QA: '#/qa',
       HOSPITAL: '#/hospital',
+      AIOPS: '#/aiops',
     };
     window.location.hash = hashMapping[role];
   };
@@ -207,6 +211,16 @@ export default function App() {
           <HospitalConsole
             showToast={showToast}
             onRefreshData={loadData}
+          />
+        )}
+
+        {currentRole === 'AIOPS' && (
+          <AIOpsConsole
+            showToast={showToast}
+            onNavigateToCatalog={() => {
+              loadData();
+              handleSelectRole('CUSTOMER');
+            }}
           />
         )}
       </main>

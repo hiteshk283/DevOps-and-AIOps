@@ -50,6 +50,12 @@ export const Header: React.FC<HeaderProps> = ({
       badge: '🏥 Empanelled Provider',
       color: '#0891b2',
       desc: 'Cashless Pre-Auth & Admissions'
+    },
+    AIOPS: {
+      label: 'AIOps Swarm',
+      badge: '🛡️ AIOps Swarm',
+      color: '#06b6d4',
+      desc: 'Gemini Autonomous SRE & Growth Swarm'
     }
   };
 

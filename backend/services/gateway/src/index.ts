@@ -25,6 +25,7 @@ const services = {
   hospitals: process.env.HOSPITALS_SERVICE_URL || 'http://localhost:3008',
   documents: process.env.DOCUMENTS_SERVICE_URL || 'http://localhost:3009',
   support: process.env.SUPPORT_SERVICE_URL || 'http://localhost:3010',
+  aiops: process.env.AIOPS_SERVICE_URL || 'http://localhost:3011',
 };
 
 // Route Proxies
@@ -74,6 +75,18 @@ app.use('/api/support', createProxyMiddleware({
   target: services.support,
   changeOrigin: true,
   pathRewrite: { '^/api/support': '' },
+}));
+
+// Multi-Agent AIOps Swarm Reverse Proxy (Port 3011)
+app.use('/api/agents', createProxyMiddleware({
+  target: services.aiops,
+  changeOrigin: true,
+}));
+
+app.use('/api/aiops', createProxyMiddleware({
+  target: services.aiops,
+  changeOrigin: true,
+  pathRewrite: { '^/api/aiops': '' },
 }));
 
 app.get('/api/status', (req, res) => {

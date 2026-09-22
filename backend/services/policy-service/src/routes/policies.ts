@@ -185,7 +185,94 @@ policyRoutes.post('/proposals', async (req: Request, res: Response): Promise<any
   });
 });
 
-// 5. GET policy by code
+// 5. POST Create / Register New Policy (Used by Nexus AI & Product Admin)
+policyRoutes.post('/', async (req: Request, res: Response): Promise<any> => {
+  const {
+    code,
+    name,
+    tier,
+    monthly_premium,
+    annual_deductible,
+    max_coverage,
+    copay_percent,
+    network_type,
+    room_rent_limit,
+    waiting_period_initial_days,
+    waiting_period_pre_existing_months,
+    description,
+    plain_language_explanation,
+    features
+  } = req.body;
+
+  if (!code || !name || !tier || !monthly_premium) {
+    return res.status(400).json({ error: 'code, name, tier, and monthly_premium are required fields' });
+  }
+
+  const newPolicy = {
+    id: DEFAULT_POLICIES.length + 1,
+    code: code.trim().toUpperCase(),
+    name,
+    tier,
+    monthly_premium: Number(monthly_premium),
+    annual_deductible: Number(annual_deductible || 0),
+    max_coverage: Number(max_coverage || 500000),
+    copay_percent: Number(copay_percent || 10),
+    network_type: network_type || 'PPO',
+    room_rent_limit: room_rent_limit || 'Single Private AC Room (No Cap)',
+    waiting_period_initial_days: Number(waiting_period_initial_days || 15),
+    waiting_period_pre_existing_months: Number(waiting_period_pre_existing_months || 12),
+    description: description || 'Innovative customized health coverage plan.',
+    plain_language_explanation: plain_language_explanation || {
+      sum_insured_plain: `₹${(Number(max_coverage || 500000) / 100000).toFixed(1)} Lakh coverage per year.`,
+      room_rent_plain: room_rent_limit || 'Single Private AC Room included.',
+      waiting_period_plain: `${waiting_period_initial_days || 15} days waiting period for fresh ailments.`,
+      copay_plain: `${copay_percent || 10}% co-payment on approved hospital claims.`
+    },
+    features: Array.isArray(features) ? features : ['100% Preventive Care Covered', 'Instant Cashless Network', 'Free Tele-Consultations']
+  };
+
+  try {
+    await pool.query(
+      `INSERT INTO policies (code, name, tier, monthly_premium, annual_deductible, max_coverage, copay_percent, network_type, room_rent_limit, waiting_period_initial_days, waiting_period_pre_existing_months, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (code) DO UPDATE SET 
+         name = EXCLUDED.name,
+         monthly_premium = EXCLUDED.monthly_premium,
+         max_coverage = EXCLUDED.max_coverage`,
+      [
+        newPolicy.code,
+        newPolicy.name,
+        newPolicy.tier,
+        newPolicy.monthly_premium,
+        newPolicy.annual_deductible,
+        newPolicy.max_coverage,
+        newPolicy.copay_percent,
+        newPolicy.network_type,
+        newPolicy.room_rent_limit,
+        newPolicy.waiting_period_initial_days,
+        newPolicy.waiting_period_pre_existing_months,
+        newPolicy.description
+      ]
+    );
+  } catch (err: any) {
+    console.warn('[Policy Service DB Insert Warning]: Storing in memory fallback', err.message);
+  }
+
+  // Update in-memory fallback list
+  const existingIdx = DEFAULT_POLICIES.findIndex(p => p.code === newPolicy.code);
+  if (existingIdx >= 0) {
+    DEFAULT_POLICIES[existingIdx] = newPolicy;
+  } else {
+    DEFAULT_POLICIES.push(newPolicy);
+  }
+
+  return res.status(201).json({
+    message: `Policy ${newPolicy.code} successfully registered in HealthShield catalog`,
+    policy: newPolicy
+  });
+});
+
+// 6. GET policy by code
 policyRoutes.get('/:code', async (req: Request, res: Response): Promise<any> => {
   const { code } = req.params;
   try {
@@ -196,3 +283,4 @@ policyRoutes.get('/:code', async (req: Request, res: Response): Promise<any> => 
   if (fallback) return res.json(fallback);
   return res.status(404).json({ error: `Policy ${code} not found` });
 });
+

@@ -1,0 +1,324 @@
+"""
+Atlassian Jira Service Management (JSM) Tool for HealthShield AI Swarm
+Directly connects AI Agents (Kira SRE, Operator, Supervisor) to live Jira Cloud.
+Capabilities:
+- Open P1/P2 Incident tickets (IssueType 10003: [System] Incident)
+- Create Service Requests (IssueType 10001)
+- Add investigation and RCA comments
+- Resolve and close tickets with audit notes
+- Query open tickets via JQL
+"""
+
+import json
+import os
+import base64
+import urllib.request
+import urllib.parse
+from typing import Dict, Any, List, Optional
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+except ImportError:
+    pass
+
+# Load Jira credentials from environment
+JIRA_BASE_URL = os.getenv("JIRA_BASE_URL", "https://kumarh5149.atlassian.net").rstrip("/")
+JIRA_USER_EMAIL = os.getenv("JIRA_USER_EMAIL", "kumarh5149@gmail.com")
+JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
+JIRA_PROJECT_KEY = os.getenv("JIRA_PROJECT_KEY", "OPS")
+
+
+def _get_auth_header() -> str:
+    """Generate HTTP Basic Auth header for Atlassian Cloud."""
+    token_str = f"{JIRA_USER_EMAIL}:{JIRA_API_TOKEN}"
+    return "Basic " + base64.b64encode(token_str.encode("utf-8")).decode("utf-8")
+
+
+def create_jira_incident(
+    summary: str,
+    description: str,
+    service_name: str = "cluster",
+    priority: str = "High",
+    issue_type_id: str = "10003"  # [System] Incident
+) -> Dict[str, Any]:
+    """Open an Incident ticket in Jira Service Management."""
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue"
+    payload = {
+        "fields": {
+            "project": {"key": JIRA_PROJECT_KEY},
+            "summary": f"[AIOps Incident] {summary}",
+            "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": description}]
+                    }
+                ]
+            },
+            "issuetype": {"id": issue_type_id},
+            "labels": ["HealthShield", "AIOps", service_name.replace(" ", "-")]
+        }
+    }
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": _get_auth_header(),
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            ticket_key = data.get("key")
+            ticket_url = f"{JIRA_BASE_URL}/browse/{ticket_key}"
+            return {
+                "success": True,
+                "key": ticket_key,
+                "url": ticket_url,
+                "message": f"Successfully created live Jira Incident ticket: {ticket_key}"
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to open Jira ticket: {str(e)}"
+        }
+
+
+def add_jira_comment(issue_key: str, comment_text: str) -> Dict[str, Any]:
+    """Post an RCA or remediation comment to an existing Jira ticket."""
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/comment"
+    payload = {
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": comment_text}]
+                }
+            ]
+        }
+    }
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": _get_auth_header(),
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return {
+                "success": True,
+                "issue_key": issue_key,
+                "message": f"Added comment to Jira ticket {issue_key}"
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def resolve_jira_issue(issue_key: str, resolution_note: str) -> Dict[str, Any]:
+    """Transition a Jira ticket to Resolved / Closed and add an RCA note."""
+    # 1. Add resolution comment first
+    add_jira_comment(issue_key, f"🤖 [AIOps Auto-Remediation]: {resolution_note}")
+
+    # 2. Fetch available transitions
+    trans_url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions"
+    try:
+        req = urllib.request.Request(
+            trans_url,
+            headers={"Authorization": _get_auth_header(), "Accept": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            transitions = data.get("transitions", [])
+
+        # Find target transition (e.g., "Done", "Resolve this issue", "Closed", "Resolved", "Mark as done")
+        target_trans = None
+        for t in transitions:
+            t_name = t.get("name", "").lower()
+            if any(k in t_name for k in ["resolve", "done", "close", "complete", "mark as done"]):
+                target_trans = t
+                break
+
+        if not target_trans and transitions:
+            target_trans = transitions[0]  # Fallback to first available transition
+
+        if target_trans:
+            post_trans_req = urllib.request.Request(
+                trans_url,
+                data=json.dumps({"transition": {"id": target_trans["id"]}}).encode("utf-8"),
+                headers={
+                    "Authorization": _get_auth_header(),
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(post_trans_req, timeout=20) as resp:
+                pass
+
+        return {
+            "success": True,
+            "issue_key": issue_key,
+            "transition": target_trans.get("name") if target_trans else "Updated Comment",
+            "message": f"Jira ticket {issue_key} successfully resolved with remediation audit note."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to transition ticket {issue_key}: {str(e)}"
+        }
+
+
+def list_open_jira_tickets(limit: int = 15) -> List[Dict[str, Any]]:
+    """Retrieve tickets from Project OPS using Jira Cloud API v3 search/jql."""
+    url = f"{JIRA_BASE_URL}/rest/api/3/search/jql"
+    payload = {
+        "jql": f"project = {JIRA_PROJECT_KEY} ORDER BY created DESC",
+        "maxResults": limit,
+        "fields": ["summary", "status", "priority", "created", "issuetype", "labels"]
+    }
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": _get_auth_header(),
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            issues = data.get("issues", [])
+            output = []
+            for iss in issues:
+                fields = iss.get("fields", {})
+                output.append({
+                    "key": iss.get("key"),
+                    "summary": fields.get("summary"),
+                    "status": fields.get("status", {}).get("name", "Open"),
+                    "priority": fields.get("priority", {}).get("name", "Medium"),
+                    "created": fields.get("created"),
+                    "issue_type": fields.get("issuetype", {}).get("name", "Incident"),
+                    "labels": fields.get("labels", []),
+                    "url": f"{JIRA_BASE_URL}/browse/{iss.get('key')}"
+                })
+            return output
+    except Exception as e:
+        print(f"Jira search error: {e}")
+        return []
+
+
+def transition_jira_issue(issue_key: str, target_state_keyword: str) -> Dict[str, Any]:
+    """
+    Transition a Jira ticket towards a target state keyword 
+    (e.g. 'investigate', 'progress', 'resolve', 'done', 'close').
+    """
+    trans_url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions"
+    try:
+        req = urllib.request.Request(
+            trans_url,
+            headers={"Authorization": _get_auth_header(), "Accept": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            transitions = data.get("transitions", [])
+
+        target_trans = None
+        kw = target_state_keyword.lower()
+        for t in transitions:
+            t_name = t.get("name", "").lower()
+            to_name = t.get("to", {}).get("name", "").lower()
+            if kw in t_name or kw in to_name:
+                target_trans = t
+                break
+
+        if not target_trans and transitions:
+            target_trans = transitions[0]
+
+        if target_trans:
+            post_req = urllib.request.Request(
+                trans_url,
+                data=json.dumps({"transition": {"id": target_trans["id"]}}).encode("utf-8"),
+                headers={
+                    "Authorization": _get_auth_header(),
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(post_req, timeout=10) as resp:
+                pass
+            return {"success": True, "transition": target_trans.get("name")}
+        return {"success": False, "error": f"No matching transition found for keyword '{target_state_keyword}'"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_pending_jira_tickets(limit: int = 15) -> List[Dict[str, Any]]:
+    """Retrieve tickets from Project OPS that are awaiting action (statusCategory != Done)."""
+    url = f"{JIRA_BASE_URL}/rest/api/3/search/jql"
+    payload = {
+        "jql": f"project = {JIRA_PROJECT_KEY} AND statusCategory != Done ORDER BY created ASC",
+        "maxResults": limit,
+        "fields": ["summary", "status", "priority", "created", "issuetype", "labels", "description"]
+    }
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": _get_auth_header(),
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            issues = data.get("issues", [])
+            output = []
+            for iss in issues:
+                fields = iss.get("fields", {})
+                desc_text = ""
+                # Parse description if present
+                desc_raw = fields.get("description")
+                if isinstance(desc_raw, dict):
+                    paragraphs = desc_raw.get("content", [])
+                    for p in paragraphs:
+                        for c in p.get("content", []):
+                            desc_text += c.get("text", "") + "\n"
+                elif isinstance(desc_raw, str):
+                    desc_text = desc_raw
+
+                output.append({
+                    "key": iss.get("key"),
+                    "summary": fields.get("summary", ""),
+                    "description": desc_text.strip(),
+                    "status": fields.get("status", {}).get("name", "Open"),
+                    "priority": fields.get("priority", {}).get("name", "Medium"),
+                    "created": fields.get("created"),
+                    "issue_type": fields.get("issuetype", {}).get("name", "Task"),
+                    "labels": fields.get("labels", []),
+                    "url": f"{JIRA_BASE_URL}/browse/{iss.get('key')}"
+                })
+            return output
+    except Exception as e:
+        print(f"Jira pending tickets error: {e}")
+        return []
+

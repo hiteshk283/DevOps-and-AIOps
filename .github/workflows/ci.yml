@@ -1,6 +1,9 @@
 name: HealthShield CI Pipeline (GitHub Actions -> AWS ECR)
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 env:
