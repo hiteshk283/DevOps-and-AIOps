@@ -2,7 +2,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaConnect
 metadata:
   name: healthshield-connect
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   annotations:
     strimzi.io/use-connector-resources: "true"
 spec:
@@ -26,7 +26,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaConnector
 metadata:
   name: aws-s3-sink-connector
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   labels:
     strimzi.io/cluster: healthshield-connect
 spec:

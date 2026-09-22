@@ -2,7 +2,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
   name: payment.events
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   labels:
     strimzi.io/cluster: healthshield-kafka
 spec:
@@ -16,7 +16,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
   name: claim.events
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   labels:
     strimzi.io/cluster: healthshield-kafka
 spec:
@@ -30,7 +30,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
   name: policy.events
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   labels:
     strimzi.io/cluster: healthshield-kafka
 spec:
@@ -45,7 +45,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
   name: underwriting.events
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   labels:
     strimzi.io/cluster: healthshield-kafka
 spec:
@@ -60,7 +60,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
   name: analytics.events
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   labels:
     strimzi.io/cluster: healthshield-kafka
 spec:
@@ -75,7 +75,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
   name: audit.events
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   labels:
     strimzi.io/cluster: healthshield-kafka
 spec:
@@ -90,7 +90,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
   name: claim.dlq.events
-  namespace: health-insurance
+  namespace: kumarh5149-dev
   labels:
     strimzi.io/cluster: healthshield-kafka
 spec:

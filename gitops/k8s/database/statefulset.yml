@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: insurance-postgres
-  namespace: health-insurance
+  namespace: kumarh5149-dev
 spec:
   serviceName: postgres
   replicas: 1

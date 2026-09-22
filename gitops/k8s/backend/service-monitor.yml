@@ -8,7 +8,7 @@ metadata:
 spec:
   namespaceSelector:
     matchNames:
-      - health-insurance
+      - kumarh5149-dev
   selector:
     matchLabels:
       app: gateway
