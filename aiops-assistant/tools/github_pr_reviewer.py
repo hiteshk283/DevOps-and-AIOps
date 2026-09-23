@@ -23,6 +23,7 @@ from tools.jira_tool import (
     add_jira_comment,
     resolve_jira_issue,
     transition_jira_issue,
+    find_jira_ticket_by_summary,
     JIRA_BASE_URL,
     JIRA_PROJECT_KEY
 )
@@ -193,25 +194,33 @@ def run_pr_review_workflow(
     pr_info = fetch_pr_details_and_diff(repo, pr_number, token)
     print(f"Fetched PR: '{pr_info['title']}' by @{pr_info['author']} (+{pr_info['additions']}/-{pr_info['deletions']})")
 
-    # 2. Open Jira Ticket
-    jira_res = create_jira_incident(
-        summary=f"PR Review #{pr_number}: {pr_info['title']} (by @{pr_info['author']})",
-        description=f"""GitHub Pull Request Review Request:
+    # 2. Check for existing Jira ticket for this PR to avoid duplicates
+    existing_ticket = find_jira_ticket_by_summary(f"PR Review #{pr_number}:")
+    if existing_ticket:
+        jira_key = existing_ticket.get("key")
+        jira_url = existing_ticket.get("url")
+        print(f"🎫 Reusing existing Jira Ticket: {jira_key} ({jira_url})")
+        add_jira_comment(jira_key, f"🔄 Updated PR review initiated for PR #{pr_number}.")
+        transition_jira_issue(jira_key, "progress")
+    else:
+        jira_res = create_jira_incident(
+            summary=f"PR Review #{pr_number}: {pr_info['title']} (by @{pr_info['author']})",
+            description=f"""GitHub Pull Request Review Request:
 - Repository: {repo}
 - PR Link: {pr_info['html_url']}
 - Target Branch: {pr_info['base_branch']}
 - Source Branch: {pr_info['head_branch']}
 - Changes: {pr_info['changed_files']} files (+{pr_info['additions']}/-{pr_info['deletions']})
 """,
-        service_name="gitops",
-        priority="Medium",
-        issue_type_id="10004"  # Task
-    )
-    jira_key = jira_res.get("key")
-    print(f"🎫 Jira Ticket Opened: {jira_key} ({jira_res.get('url')})")
-
-    if jira_key:
-        transition_jira_issue(jira_key, "progress")
+            service_name="gitops",
+            priority="Medium",
+            issue_type_id="10004"  # Task
+        )
+        jira_key = jira_res.get("key")
+        jira_url = jira_res.get("url")
+        print(f"🎫 Jira Ticket Opened: {jira_key} ({jira_url})")
+        if jira_key:
+            transition_jira_issue(jira_key, "progress")
 
     # 3. Run AI Review
     review = review_code_with_gemini(pr_info, api_key=gemini_key)
@@ -364,7 +373,8 @@ if __name__ == "__main__":
                 commit_msg=commit_msg
             )
             if auto_pr:
-                pr_num_str = str(auto_pr)
+                print(f"✅ Pull Request #{auto_pr} verified. The GitHub Actions 'pull_request' workflow will perform AI code review and Jira tracking.")
+                sys.exit(0)
             else:
                 print(f"ℹ️ No active PR or unmerged diffs for branch '{branch_name}'. Exiting cleanly.")
                 sys.exit(0)

@@ -374,3 +374,40 @@ def get_pending_jira_tickets(limit: int = 15) -> List[Dict[str, Any]]:
         print(f"Jira pending tickets error: {e}")
         return []
 
+
+def find_jira_ticket_by_summary(summary_prefix: str) -> Optional[Dict[str, Any]]:
+    """Find the most recent Jira ticket matching a summary prefix for deduplication."""
+    try:
+        url = f"{JIRA_BASE_URL}/rest/api/3/search/jql"
+        # Search for tickets containing prefix in summary
+        payload = {
+            "jql": f'project = {JIRA_PROJECT_KEY} AND text ~ "{summary_prefix}" ORDER BY created DESC',
+            "maxResults": 5,
+            "fields": ["summary", "status", "priority", "created"]
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": _get_auth_header(),
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            issues = data.get("issues", [])
+            for iss in issues:
+                summ = iss.get("fields", {}).get("summary", "")
+                if summary_prefix.lower() in summ.lower():
+                    return {
+                        "key": iss.get("key"),
+                        "summary": summ,
+                        "status": iss.get("fields", {}).get("status", {}).get("name", "Open"),
+                        "url": f"{JIRA_BASE_URL}/browse/{iss.get('key')}"
+                    }
+    except Exception as e:
+        print(f"Jira find by summary warning: {e}")
+    return None
+

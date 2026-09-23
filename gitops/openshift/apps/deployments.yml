@@ -46,6 +46,8 @@ spec:
               value: "http://document-service:3009"
             - name: SUPPORT_SERVICE_URL
               value: "http://support-service:3010"
+            - name: AIOPS_SERVICE_URL
+              value: "http://aiops-assistant:3011"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -280,3 +282,77 @@ spec:
           env:
             - name: REACT_APP_API_URL
               value: "/api"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-assistant
+  template:
+    metadata:
+      labels:
+        app: aiops-assistant
+    spec:
+      containers:
+        - name: aiops-assistant
+          image: 794558722040.dkr.ecr.us-east-1.amazonaws.com/aiops-assistant:latest
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          ports:
+            - containerPort: 3011
+              name: api
+            - containerPort: 8501
+              name: ui
+          env:
+            - name: PORT
+              value: "3011"
+            - name: K8S_NAMESPACE
+              value: "kumarh5149-dev"
+            - name: GATEWAY_URL
+              value: "http://gateway:3001"
+            - name: PROMETHEUS_URL
+              value: "http://prometheus:9090"
+            - name: JIRA_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: healthshield-secrets
+                  key: JIRA_BASE_URL
+            - name: JIRA_USER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: healthshield-secrets
+                  key: JIRA_USER_EMAIL
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: healthshield-secrets
+                  key: JIRA_API_TOKEN
+            - name: JIRA_PROJECT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: healthshield-secrets
+                  key: JIRA_PROJECT_KEY
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: healthshield-secrets
+                  key: GEMINI_API_KEY
+            - name: GEMINI_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: healthshield-secrets
+                  key: GEMINI_MODEL
+            - name: GEMINI_FLASH_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: healthshield-secrets
+                  key: GEMINI_FLASH_MODEL

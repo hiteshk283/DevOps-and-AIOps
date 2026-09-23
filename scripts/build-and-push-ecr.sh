@@ -31,6 +31,14 @@ echo "Pushing Frontend to ECR..."
 docker push ${ECR_REGISTRY}/frontend:${TAG}
 docker push ${ECR_REGISTRY}/frontend:latest
 
+echo "-----------------------------------------------------------------"
+echo "Building AIOps Assistant..."
+echo "-----------------------------------------------------------------"
+docker build -t ${ECR_REGISTRY}/aiops-assistant:${TAG} -t ${ECR_REGISTRY}/aiops-assistant:latest aiops-assistant
+echo "Pushing AIOps Assistant to ECR..."
+docker push ${ECR_REGISTRY}/aiops-assistant:${TAG}
+docker push ${ECR_REGISTRY}/aiops-assistant:latest
+
 echo "================================================================="
-echo "HealthShield: All 10 container images successfully pushed to ECR!"
+echo "HealthShield: All 11 container images successfully pushed to ECR!"
 echo "================================================================="
