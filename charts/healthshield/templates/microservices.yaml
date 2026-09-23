@@ -45,7 +45,7 @@ spec:
       labels:
         app: {{ $svc.name }}
       annotations:
-        rolloutTimestamp: {{ $root.Values.global.rolloutTimestamp | default (now | quote) }}
+        rolloutTimestamp: {{ ($root.Values.global.rolloutTimestamp | default now) | quote }}
     spec:
       {{- if $root.Values.global.imagePullSecrets }}
       imagePullSecrets:

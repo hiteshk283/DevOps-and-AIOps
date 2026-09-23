@@ -34,7 +34,7 @@ spec:
       labels:
         app: aiops-assistant
       annotations:
-        rolloutTimestamp: {{ .Values.global.rolloutTimestamp | default (now | quote) }}
+        rolloutTimestamp: {{ (.Values.global.rolloutTimestamp | default now) | quote }}
     spec:
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:

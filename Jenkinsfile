@@ -76,7 +76,7 @@ pipeline {
                         --namespace ${NAMESPACE} \
                         --set global.imageTag=${IMAGE_TAG} \
                         --set global.imagePullPolicy=Always \
-                        --set global.rolloutTimestamp="${ROLLOUT_TIME}"
+                        --set-string global.rolloutTimestamp="${ROLLOUT_TIME}"
                 '''
             }
         }
