@@ -22,6 +22,7 @@ metadata:
     app: postgres
     {{- include "healthshield.labels" . | nindent 4 }}
 spec:
+  revisionHistoryLimit: 1
   replicas: 1
   selector:
     matchLabels:

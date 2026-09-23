@@ -35,6 +35,7 @@ metadata:
     app: {{ $svc.name }}
     {{- include "healthshield.labels" $root | nindent 4 }}
 spec:
+  revisionHistoryLimit: 1
   replicas: {{ $svc.replicas | default 1 }}
   selector:
     matchLabels:
@@ -43,6 +44,8 @@ spec:
     metadata:
       labels:
         app: {{ $svc.name }}
+      annotations:
+        rolloutTimestamp: {{ $root.Values.global.rolloutTimestamp | default (now | quote) }}
     spec:
       {{- if $root.Values.global.imagePullSecrets }}
       imagePullSecrets:

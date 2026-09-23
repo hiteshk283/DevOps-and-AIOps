@@ -5,7 +5,7 @@ global:
   namespace: kumarh5149-dev
   ecrRegistry: 794558722040.dkr.ecr.us-east-1.amazonaws.com
   imageTag: latest
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   imagePullSecrets:
     - name: aws-ecr-secret
 

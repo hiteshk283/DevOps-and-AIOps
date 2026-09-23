@@ -78,4 +78,6 @@ jobs:
         run: |
           echo "All 11 container images pushed to Amazon ECR successfully."
           echo "Triggering Jenkins CD pipeline on OpenShift..."
-          curl -k -X POST "https://jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com/job/healthshield-cd/buildWithParameters?IMAGE_TAG=$IMAGE_TAG" || true
+          curl -k -f -X POST \
+            -H "Authorization: Bearer ${{ secrets.OPENSHIFT_TOKEN }}" \
+            "https://jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com/job/healthshield-pipeline/buildWithParameters?IMAGE_TAG=$IMAGE_TAG"

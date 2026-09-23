@@ -70,37 +70,13 @@ CREATE TABLE IF NOT EXISTS bank_accounts (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Seed Auth Data
+-- Seed Core Staff & Admin Roles (No dummy customers)
 INSERT INTO users (id, email, phone, password_hash, first_name, last_name, role, is_verified)
 VALUES 
-(1, 'john.doe@example.com', '+919876543210', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'John', 'Doe', 'CUSTOMER', true),
-(2, 'sarah.smith@example.com', '+919876543211', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'Sarah', 'Smith', 'CUSTOMER', true),
-(3, 'hospital.desk@metrohealth.com', '+919876543212', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'Dr. Rajesh', 'Gupta', 'HOSPITAL_USER', true),
-(4, 'claims.officer@healthshield.com', '+919876543213', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'Anita', 'Sharma', 'CLAIMS_AGENT', true),
-(5, 'admin@healthshield.com', '+919876543214', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'System', 'Admin', 'ADMIN', true)
+(1, 'admin@healthshield.com', '+919876543214', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'System', 'Admin', 'ADMIN', true),
+(2, 'hospital.desk@metrohealth.com', '+919876543212', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'Dr. Rajesh', 'Gupta', 'HOSPITAL_USER', true),
+(3, 'claims.officer@healthshield.com', '+919876543213', '$2b$10$rO2XiXHibxChj.dUskr34eHlJDt8v.gD7D8xBAs4og7x2W1lphVU.', 'Anita', 'Sharma', 'CLAIMS_AGENT', true)
 ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO kyc_verifications (user_id, pan_number, aadhaar_last4, full_name_as_per_id, kyc_status)
-VALUES 
-(1, 'ABCDE1234F', '7890', 'John Jonathan Doe', 'VERIFIED'),
-(2, 'FGHIJ5678K', '4321', 'Sarah Smith', 'VERIFIED')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO dependents (user_id, full_name, relationship, date_of_birth, gender)
-VALUES 
-(1, 'Jane Doe', 'SPOUSE', '1990-05-15', 'Female'),
-(1, 'Leo Doe', 'CHILD', '2018-09-20', 'Male')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO nominees (user_id, full_name, relationship, share_percent, phone)
-VALUES 
-(1, 'Jane Doe', 'SPOUSE', 100, '+919876543219')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO bank_accounts (user_id, account_holder_name, account_number, ifsc_code, bank_name)
-VALUES 
-(1, 'John Doe', '91002003004005', 'HDFC0001234', 'HDFC Bank')
-ON CONFLICT DO NOTHING;
 
 
 -- =============================================================================
@@ -281,61 +257,6 @@ CREATE TABLE IF NOT EXISTS claim_queries (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO claims (claim_number, claim_type, member_id, policy_code, patient_name, provider_hospital, hospital_id, treatment_description, claimed_amount, approved_amount, status, service_date, notes, fraud_risk_score, fraud_flags)
-VALUES 
-(
-    'CLM-2026-8801',
-    'CASHLESS',
-    'MEM-1001',
-    'POL-GLD-03',
-    'John Doe',
-    'Apollo Super Speciality Hospital',
-    1,
-    'Emergency Appendectomy & 3-day Inpatient Recovery',
-    185000.00,
-    166500.00,
-    'SETTLED',
-    '2026-08-15',
-    'Settled via cashless TPA direct bank NEFT.',
-    12,
-    '[]'::jsonb
-),
-(
-    'CLM-2026-8802',
-    'CASHLESS',
-    'MEM-1001',
-    'POL-GLD-03',
-    'John Doe',
-    'Fortis Healthcare',
-    2,
-    'Cardiac Angiography & Stent Procedure',
-    340000.00,
-    306000.00,
-    'PRE_AUTH_APPROVED',
-    '2026-09-18',
-    'Pre-auth letter issued for ₹3,06,000 after 10% copay.',
-    15,
-    '[]'::jsonb
-),
-(
-    'CLM-2026-8803',
-    'REIMBURSEMENT',
-    'MEM-1002',
-    'POL-SLV-02',
-    'Sarah Smith',
-    'Max Healthcare',
-    3,
-    'Dengue Fever Inpatient Treatment & Platelet Transfusion',
-    65000.00,
-    55250.00,
-    'IN_REVIEW',
-    '2026-09-10',
-    'Original pharmacy bills and discharge summary uploaded.',
-    22,
-    '["Duplicate bill check passed", "Cost within room rent ceiling"]'::jsonb
-)
-ON CONFLICT (claim_number) DO NOTHING;
-
 
 -- =============================================================================
 -- 4. MEMBERS DATABASE (members_db)
@@ -360,42 +281,6 @@ CREATE TABLE IF NOT EXISTS members (
     renewal_date DATE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
-INSERT INTO members (member_id, user_id, first_name, last_name, email, phone, date_of_birth, address, active_policy_code, sum_insured, remaining_coverage, policy_status, effective_date, renewal_date)
-VALUES 
-(
-    'MEM-1001',
-    1,
-    'John',
-    'Doe',
-    'john.doe@example.com',
-    '+91 98765 43210',
-    '1988-04-12',
-    'Flat 402, Sea Green Apartments, Bandra West, Mumbai, MH',
-    'POL-GLD-03',
-    2500000.00,
-    2027500.00,
-    'ACTIVE',
-    '2026-01-01',
-    '2026-12-31'
-),
-(
-    'MEM-1002',
-    2,
-    'Sarah',
-    'Smith',
-    'sarah.smith@example.com',
-    '+91 98765 43211',
-    '1992-09-24',
-    'B-12, Indiranagar 100ft Road, Bengaluru, KA',
-    'POL-SLV-02',
-    1000000.00,
-    944750.00,
-    'ACTIVE',
-    '2026-03-15',
-    '2027-03-14'
-)
-ON CONFLICT (member_id) DO NOTHING;
 
 
 -- =============================================================================
@@ -544,18 +429,6 @@ CREATE TABLE IF NOT EXISTS payments (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO invoices (invoice_number, user_id, policy_code, amount, tax_amount, total_amount, tax_80d_eligible, status)
-VALUES 
-('INV-2026-001', 1, 'POL-GLD-03', 4566.10, 821.90, 5388.00, 4566.10, 'PAID'),
-('INV-2026-002', 2, 'POL-SLV-02', 2939.00, 529.00, 3468.00, 2939.00, 'PAID')
-ON CONFLICT (invoice_number) DO NOTHING;
-
-INSERT INTO payments (payment_id, invoice_number, user_id, amount, payment_method, idempotency_key, status, transaction_ref, kafka_event_published)
-VALUES 
-('PAY-2026-901', 'INV-2026-001', 1, 5388.00, 'UPI', 'IDEMP-KEY-998811', 'SUCCESS', 'UPI-REF-992817263', true),
-('PAY-2026-902', 'INV-2026-002', 2, 3468.00, 'CARD', 'IDEMP-KEY-998812', 'SUCCESS', 'CARD-TXN-882736192', true)
-ON CONFLICT (payment_id) DO NOTHING;
-
 
 -- =============================================================================
 -- 7. DOCUMENTS & CONSENT DATABASE (documents_db)
@@ -592,35 +465,6 @@ CREATE TABLE IF NOT EXISTS consent_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO documents (user_id, claim_id, document_type, file_name, s3_key, sha256_hash, file_size_bytes, mime_type, is_encrypted)
-VALUES 
-(1, 1, 'DISCHARGE_SUMMARY', 'Discharge_Summary_Apollo_JohnDoe.pdf', 'documents/user-1/claims/clm-1/discharge_summary.pdf', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 418290, 'application/pdf', true),
-(1, 1, 'HOSPITAL_BILL', 'Itemized_Hospital_Invoice_Apollo.pdf', 'documents/user-1/claims/clm-1/invoice.pdf', '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae', 289120, 'application/pdf', true),
-(1, NULL, 'POLICY_SCHEDULE', 'Policy_Schedule_POL-GLD-03.pdf', 'documents/user-1/policies/pol-gld-03.pdf', 'fc4688d3130f97e89e36306e3ea971809141e634b8ffab952f473ac003fb2f4c', 512000, 'application/pdf', true)
-ON CONFLICT DO NOTHING;
-
-INSERT INTO consent_records (user_id, purpose, data_categories, recipient, expiry_date, withdrawal_status, audit_hash)
-VALUES 
-(
-    1,
-    'Cashless Claim Adjudication & Pre-Authorization Sharing',
-    '["Medical History", "Hospital Bills", "Discharge Summary", "Doctor Notes"]'::jsonb,
-    'Apollo Hospitals & HealthShield In-house TPA Desk',
-    '2027-01-01',
-    'ACTIVE',
-    'a7f8e3290b2c45199ffbe14298fc1c14'
-),
-(
-    1,
-    'Policy Issuance & IRDAI Regulatory Reporting',
-    '["KYC Documents", "Aadhaar/PAN Info", "Contact Details"]'::jsonb,
-    'Insurance Regulatory & Development Authority of India (IRDAI)',
-    '2030-01-01',
-    'ACTIVE',
-    '9b2c45199fa7f8e320b2c45199ffbe14'
-)
-ON CONFLICT DO NOTHING;
-
 
 -- =============================================================================
 -- 8. CUSTOMER SUPPORT & JIRA SERVICE DESK (support_db)
@@ -651,40 +495,3 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
     message TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
-INSERT INTO tickets (id, ticket_number, user_id, policy_code, claim_number, category, priority, status, subject, sla_due_hours, jira_issue_key)
-VALUES 
-(
-    1,
-    'TCK-2026-5501',
-    1,
-    'POL-GLD-03',
-    'CLM-2026-8802',
-    'CLAIMS_ASSISTANCE',
-    'HIGH',
-    'IN_PROGRESS',
-    'Pre-Authorization query verification for Fortis Angiography',
-    12,
-    'HS-1042'
-),
-(
-    2,
-    'TCK-2026-5502',
-    1,
-    'POL-GLD-03',
-    NULL,
-    'POLICY_UPDATE',
-    'LOW',
-    'OPEN',
-    'Request to add newborn baby as secondary dependent',
-    48,
-    'HS-1043'
-)
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO ticket_messages (ticket_id, sender_role, sender_name, message)
-VALUES 
-(1, 'CUSTOMER', 'John Doe', 'Hi, the Fortis Hospital billing desk mentioned that a query was raised regarding room category approval. Could you confirm if Single Private Room is cleared?'),
-(1, 'SUPPORT_AGENT', 'Pooja V (Claims Desk)', 'Hello John, we verified your Advantage Plus Gold policy. There is zero room-rent cap on your policy. We have re-transmitted the approval voucher directly to Fortis TPA desk.'),
-(2, 'CUSTOMER', 'John Doe', 'Please let me know which documents are needed to enroll my newborn child under our family floater plan.')
-ON CONFLICT DO NOTHING;
