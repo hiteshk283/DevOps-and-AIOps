@@ -115,6 +115,14 @@ services:
     cpu: 100m
     memory: 256Mi
 
+  aiopsAssistant:
+    name: aiops-assistant
+    port: 3011
+    uiPort: 8501
+    replicas: 1
+    cpu: 100m
+    memory: 256Mi
+
 # ------------------------------------------------------------------------------
 # Observability & Integrations
 # ------------------------------------------------------------------------------

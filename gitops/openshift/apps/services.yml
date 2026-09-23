@@ -120,3 +120,18 @@ spec:
       name: http
   selector:
     app: support-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-assistant
+spec:
+  ports:
+    - port: 3011
+      targetPort: 3011
+      name: http
+    - port: 8501
+      targetPort: 8501
+      name: ui
+  selector:
+    app: aiops-assistant

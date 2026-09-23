@@ -30,6 +30,7 @@ jobs:
           - document-service
           - support-service
           - frontend
+          - aiops-assistant
 
     steps:
       - name: Checkout Code
@@ -52,6 +53,8 @@ jobs:
         run: |
           if [ "${{ matrix.service }}" == "frontend" ]; then
             BUILD_PATH="frontend"
+          elif [ "${{ matrix.service }}" == "aiops-assistant" ]; then
+            BUILD_PATH="aiops-assistant"
           else
             BUILD_PATH="backend/services/${{ matrix.service }}"
           fi
@@ -73,6 +76,6 @@ jobs:
     steps:
       - name: Notify Jenkins CD Orchestrator
         run: |
-          echo "All 10 container images pushed to Amazon ECR successfully."
+          echo "All 11 container images pushed to Amazon ECR successfully."
           echo "Triggering Jenkins CD pipeline on OpenShift..."
           curl -k -X POST "https://jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com/job/healthshield-cd/buildWithParameters?IMAGE_TAG=$IMAGE_TAG" || true
