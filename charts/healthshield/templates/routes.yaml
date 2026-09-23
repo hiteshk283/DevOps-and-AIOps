@@ -19,6 +19,25 @@ spec:
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
+  name: frontend-api
+  labels:
+    app: frontend-api
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  path: /api
+  to:
+    kind: Service
+    name: {{ .Values.services.gateway.name }}
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.routes.termination }}
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
   name: gateway
   labels:
     app: gateway

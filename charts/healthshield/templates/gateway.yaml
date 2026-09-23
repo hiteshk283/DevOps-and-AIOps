@@ -60,6 +60,8 @@ spec:
               value: "http://document-service:3009"
             - name: SUPPORT_SERVICE_URL
               value: "http://support-service:3010"
+            - name: AIOPS_SERVICE_URL
+              value: "http://aiops-assistant:3011"
             - name: LOKI_PUSH_URL
               valueFrom:
                 secretKeyRef:
