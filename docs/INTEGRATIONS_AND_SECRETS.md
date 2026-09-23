@@ -4,7 +4,7 @@ This document details **how each external tool connection is established**, **wh
 
 ---
 
-## 1. Quick Environment Variable Matrix
+## 1. Quick Environment Variable Matrix.
 
 | Tool / Service | Environment Variable | Target Microservice | File Path in Code | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
