@@ -4,7 +4,12 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --legacy-peer-deps
+
+# Configure network resilience against npm registry socket resets (ECONNRESET) in CI runners
+RUN npm config set fetch-retries 5 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retry-maxtimeout 120000 \
+    && (npm install --legacy-peer-deps --no-audit || (echo "Retrying npm install..." && sleep 3 && npm install --legacy-peer-deps --no-audit))
 
 COPY . .
 RUN npm run build
