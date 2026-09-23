@@ -21,6 +21,25 @@ try:
 except ImportError:
     pass
 
+# Built-in robust .env parser fallback
+def _load_env_file():
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k and not os.environ.get(k):
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+_load_env_file()
+
 # Load Jira credentials from environment
 JIRA_BASE_URL = os.getenv("JIRA_BASE_URL", "https://kumarh5149.atlassian.net").rstrip("/")
 JIRA_USER_EMAIL = os.getenv("JIRA_USER_EMAIL", "kumarh5149@gmail.com")
@@ -30,7 +49,9 @@ JIRA_PROJECT_KEY = os.getenv("JIRA_PROJECT_KEY", "OPS")
 
 def _get_auth_header() -> str:
     """Generate HTTP Basic Auth header for Atlassian Cloud."""
-    token_str = f"{JIRA_USER_EMAIL}:{JIRA_API_TOKEN}"
+    email = os.getenv("JIRA_USER_EMAIL", JIRA_USER_EMAIL)
+    token = os.getenv("JIRA_API_TOKEN", JIRA_API_TOKEN)
+    token_str = f"{email}:{token}"
     return "Basic " + base64.b64encode(token_str.encode("utf-8")).decode("utf-8")
 
 
@@ -42,10 +63,12 @@ def create_jira_incident(
     issue_type_id: str = "10003"  # [System] Incident
 ) -> Dict[str, Any]:
     """Open an Incident ticket in Jira Service Management."""
-    url = f"{JIRA_BASE_URL}/rest/api/3/issue"
+    base_url = os.getenv("JIRA_BASE_URL", JIRA_BASE_URL).rstrip("/")
+    project_key = os.getenv("JIRA_PROJECT_KEY", JIRA_PROJECT_KEY)
+    url = f"{base_url}/rest/api/3/issue"
     payload = {
         "fields": {
-            "project": {"key": JIRA_PROJECT_KEY},
+            "project": {"key": project_key},
             "summary": f"[AIOps Incident] {summary}",
             "description": {
                 "type": "doc",
@@ -76,13 +99,27 @@ def create_jira_incident(
         with urllib.request.urlopen(req, timeout=12) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             ticket_key = data.get("key")
-            ticket_url = f"{JIRA_BASE_URL}/browse/{ticket_key}"
+            ticket_url = f"{base_url}/browse/{ticket_key}"
             return {
                 "success": True,
                 "key": ticket_key,
                 "url": ticket_url,
                 "message": f"Successfully created live Jira Incident ticket: {ticket_key}"
             }
+    except urllib.error.HTTPError as e:
+        try:
+            err_data = json.loads(e.read().decode("utf-8"))
+            err_msg = ", ".join(err_data.get("errorMessages", []))
+            if not err_msg and "errors" in err_data:
+                err_msg = "; ".join(f"{k}: {v}" for k, v in err_data["errors"].items())
+            if not err_msg:
+                err_msg = str(e)
+        except Exception:
+            err_msg = str(e)
+        return {
+            "success": False,
+            "error": f"Jira API HTTP {e.code}: {err_msg}"
+        }
     except Exception as e:
         return {
             "success": False,

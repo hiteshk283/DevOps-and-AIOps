@@ -14,7 +14,7 @@ global:
 # ------------------------------------------------------------------------------
 database:
   enabled: true
-  image: postgres:15-alpine
+  image: bitnamilegacy/postgresql:15
   port: 5432
   user: postgres
   password: HealthShieldSecureDB2026!
@@ -28,7 +28,7 @@ database:
 # ------------------------------------------------------------------------------
 kafka:
   enabled: true
-  image: bitnami/kafka:3.7.0
+  image: bitnamilegacy/kafka:3.7.0
   port: 9092
   controllerPort: 9093
   clusterId: "abcdefghijklmnopqrstuv"

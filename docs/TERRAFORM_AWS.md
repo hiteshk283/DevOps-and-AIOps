@@ -25,8 +25,8 @@ The Terraform codebase in `infrastructure/` creates the following AWS resources:
 3. **Access Keys**: Generates `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to be passed as an OpenShift Secret into Kafka Connect.
 
 ### C. ECR Module (`infrastructure/modules/ecr/`)
-- Provisions 10 container repositories in AWS ECR for the microservices:
-  - `frontend`, `gateway`, `auth`, `policy-service`, `claim-service`, `member-service`, `hospital-service`, `billing-service`, `document-service`, `support-service`.
+- Provisions 11 container repositories in AWS ECR for the microservices and autonomous agents:
+  - `frontend`, `gateway`, `auth`, `policy-service`, `claim-service`, `member-service`, `hospital-service`, `billing-service`, `document-service`, `support-service`, `aiops-assistant`.
 
 ---
 

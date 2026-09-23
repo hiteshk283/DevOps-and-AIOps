@@ -65,7 +65,16 @@ def create_remediation_proposal(
 def execute_action(command: str) -> Dict[str, Any]:
     """Execute a remediation command safely with fallback simulation."""
     # Safety filter: ensure command only touches known safe actions
-    allowed_prefixes = ["oc rollout restart", "oc scale", "kubectl rollout restart", "helm rollback", "docker restart"]
+    allowed_prefixes = [
+        "oc rollout restart",
+        "oc scale",
+        "kubectl rollout restart",
+        "helm rollback",
+        "docker restart",
+        "oc create secret docker-registry aws-ecr-secret",
+        "oc secrets link default aws-ecr-secret",
+        "oc delete pod"
+    ]
     
     is_allowed = any(command.strip().startswith(prefix) for prefix in allowed_prefixes)
     if not is_allowed:

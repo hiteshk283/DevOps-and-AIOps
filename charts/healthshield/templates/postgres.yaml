@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: bitnami/postgresql:15
+          image: {{ .Values.database.image }}
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432

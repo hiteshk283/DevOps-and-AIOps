@@ -16,6 +16,8 @@ pipeline {
         JIRA_ISSUE_KEY = 'OPS-1'
         IMAGE_TAG      = "${params.IMAGE_TAG ?: 'latest'}"
         TARGET_ENV     = "${params.TARGET_ENV ?: 'dev'}"
+        AWS_REGION     = 'us-east-1'
+        AWS_ACCOUNT_ID = '794558722040'
     }
 
     stages {
@@ -43,11 +45,23 @@ pipeline {
             }
         }
 
-        stage('3. Verify ECR Pull Secret') {
+        stage('3. Verify & Refresh ECR Pull Secret') {
             steps {
-                echo "Verifying OpenShift aws-ecr-secret..."
+                echo "Verifying and refreshing OpenShift aws-ecr-secret..."
                 sh '''
-                    oc get secret aws-ecr-secret -n ${NAMESPACE} || echo "Creating secret..."
+                    if command -v aws >/dev/null 2>&1; then
+                        echo "AWS CLI found. Refreshing 12h ECR token..."
+                        ECR_PASS=$(aws ecr get-login-password --region ${AWS_REGION})
+                        oc create secret docker-registry aws-ecr-secret \
+                            --docker-server=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com \
+                            --docker-username=AWS \
+                            --docker-password="${ECR_PASS}" \
+                            --namespace=${NAMESPACE} \
+                            --dry-run=client -o yaml | oc apply -f -
+                    else
+                        echo "AWS CLI not found on runner; verifying existing secret..."
+                        oc get secret aws-ecr-secret -n ${NAMESPACE} || echo "Warning: aws-ecr-secret not found"
+                    fi
                     oc secrets link default aws-ecr-secret --for=pull -n ${NAMESPACE} 2>/dev/null || true
                 '''
             }
