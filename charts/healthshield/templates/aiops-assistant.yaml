@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-assistant
+  labels:
+    app: aiops-assistant
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: 3011
+      targetPort: 3011
+      name: api
+    - port: 8501
+      targetPort: 8501
+      name: ui
+  selector:
+    app: aiops-assistant
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-assistant
+  labels:
+    app: aiops-assistant
+    {{- include "healthshield.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-assistant
+  template:
+    metadata:
+      labels:
+        app: aiops-assistant
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: aiops-assistant
+          image: "{{ .Values.global.ecrRegistry }}/aiops-assistant:{{ .Values.global.imageTag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 3011
+              name: api
+            - containerPort: 8501
+              name: ui
+          env:
+            - name: PORT
+              value: "3011"
+            - name: K8S_NAMESPACE
+              value: {{ .Values.global.namespace | default "kumarh5149-dev" | quote }}
+            - name: GATEWAY_URL
+              value: "http://gateway:3001"
+            - name: PROMETHEUS_URL
+              value: "http://prometheus:9090"
+            - name: JIRA_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: JIRA_BASE_URL
+            - name: JIRA_USER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: JIRA_USER_EMAIL
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: JIRA_API_TOKEN
+            - name: JIRA_PROJECT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: JIRA_PROJECT_KEY
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: GEMINI_API_KEY
+            - name: GEMINI_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: GEMINI_MODEL
+            - name: GEMINI_FLASH_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthshield.fullname" . }}-secrets
+                  key: GEMINI_FLASH_MODEL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
