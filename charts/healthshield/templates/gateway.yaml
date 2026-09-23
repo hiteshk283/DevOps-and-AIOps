@@ -21,6 +21,7 @@ metadata:
     app: {{ .Values.services.gateway.name }}
     {{- include "healthshield.labels" . | nindent 4 }}
 spec:
+  revisionHistoryLimit: 1
   replicas: {{ .Values.services.gateway.replicas | default 1 }}
   selector:
     matchLabels:
@@ -29,6 +30,8 @@ spec:
     metadata:
       labels:
         app: {{ .Values.services.gateway.name }}
+      annotations:
+        rolloutTimestamp: {{ .Values.global.rolloutTimestamp | default (now | quote) }}
     spec:
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:

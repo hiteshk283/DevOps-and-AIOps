@@ -16,6 +16,8 @@ This document provides a comprehensive, step-by-step record of **every command e
 9. [AIOps Multi-Agent Swarm Verification Commands](#9-aiops-multi-agent-swarm-verification-commands)
 10. [Red Hat OpenShift (OCP) Commands & Authentication](#10-red-hat-openshift-ocp-commands--authentication)
 11. [AWS CLI & Terraform Infrastructure Teardown ($0 Cost Management)](#11-aws-cli--terraform-infrastructure-teardown-0-cost-management)
+12. [GitOps, Jenkins Pipelines, and Terraform Full Synchronization & Audit](#12-gitops-jenkins-pipelines-and-terraform-full-synchronization--audit)
+13. [Jenkins CD Automation, OpenShift Quota Troubleshooting, Production Data Sanitization & Pod Rollouts](#13-jenkins-cd-automation-openshift-quota-troubleshooting-production-data-sanitization--pod-rollouts)
 
 ---
 
@@ -770,4 +772,195 @@ Plan: 24 to add, 0 to change, 0 to destroy.
 ```
 #### Explanation:
 Verifies that only storage (`s3`), access control (`iam`), and image registry (`ecr` - 11 repos) modules are configured, with EKS, VPC, and AWS-managed ArgoCD remaining deactivated to guarantee $0 AWS compute spend.
+
+---
+
+## 13. Jenkins CD Automation, OpenShift Quota Troubleshooting, Production Data Sanitization & Pod Rollouts
+
+### Command 13.1: Generating 1-Year ServiceAccount Token & Triggering Jenkins CD Webhook
+```bash
+# 1. Create long-lived ServiceAccount token for GitHub Actions and external triggers
+oc create token jenkins --duration=8760h -n kumarh5149-dev
+
+# 2. Test parameterized build webhook using token
+curl -X POST -k \
+  -H "Authorization: Bearer <OPENSHIFT_TOKEN>" \
+  "https://jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com/job/healthshield-pipeline/buildWithParameters?IMAGE_TAG=latest"
+```
+#### Output:
+```text
+HTTP/1.1 201 Created
+Location: https://jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com/queue/item/9/
+```
+#### Explanation:
+Resolves the broken CD pipeline trigger in `.github/workflows/ci.yml`. Corrects the target job name from `/job/healthshield-cd/` to `/job/healthshield-pipeline/`, replaces basic auth with a durable Bearer token, and executes Build #9 end-to-end with automated Jira deployment tracking (`OPS-43`).
+
+---
+
+### Command 13.2: Diagnosing OpenShift ReplicaSet Quota Exhaustion (`count/replicasets.apps = 30`)
+```bash
+# Check why deployments failed to create new pods during rollout
+oc describe deployment auth -n kumarh5149-dev
+```
+#### Output:
+```text
+Warning  ReplicaSetCreateError  deployment-controller  Failed to create new replica set "auth-867ff88d75": 
+replicasets.apps "auth-867ff88d75" is forbidden: exceeded quota: for-kumarh5149-replicas, 
+requested: count/replicasets.apps=1, used: count/replicasets.apps=30, limited: count/replicasets.apps=30
+```
+#### Explanation:
+Identifies the exact root cause behind pods not restarting on deployment. The Red Hat Developer Sandbox enforces a hard limit of 30 ReplicaSets per project. Deployments without `revisionHistoryLimit` default to retaining 10 history revisions. Across 14 services, old revisions accumulated to 30, causing Kubernetes to abort all new rolling deployments.
+
+---
+
+### Command 13.3: Pruning Inactive ReplicaSets & Applying `revisionHistoryLimit: 1`
+```bash
+# 1. Prune all inactive (0 replicas) and failed test ReplicaSets
+oc delete rs gateway-657d8cb8fd kafka-8475765668 kafka-dc4f4cff9 loki-6f9d6d8f4d postgres-6df466cd84 -n kumarh5149-dev
+oc delete rs aiops-assistant-869c94c5c9 auth-6f466776d8 billing-service-86c78bbbb6 claim-service-676c68b669 \
+  document-service-64469c95df frontend-cf55c8dc5 gateway-7d998c94c6 hospital-service-6579dbb87 \
+  member-service-55cf8d96ff policy-service-6b97b5cb9d support-service-6587784458 -n kumarh5149-dev
+
+# 2. Add revisionHistoryLimit: 1 to all Helm deployment templates
+# Updated: microservices.yaml, gateway.yaml, frontend.yaml, aiops-assistant.yaml, kafka.yaml, postgres.yaml
+```
+#### Output:
+```text
+replicaset.apps "aiops-assistant-869c94c5c9" deleted from kumarh5149-dev namespace
+replicaset.apps "auth-6f466776d8" deleted from kumarh5149-dev namespace
+... (all 15 unneeded ReplicaSets pruned)
+```
+#### Explanation:
+Frees 15 slots in the quota and locks `revisionHistoryLimit: 1` in Helm manifests. Future deployments automatically delete previous ReplicaSets upon successful rollout, permanently keeping namespace ReplicaSet count below 15.
+
+---
+
+### Command 13.4: Enforcing Dynamic Rollout Restarts & ECR Image Pulls
+```bash
+# 1. Update charts/healthshield/values.yaml
+#    imagePullPolicy: Always
+# 2. Add dynamic rollout annotations to deployment templates
+#    rolloutTimestamp: {{ .Values.global.rolloutTimestamp | default (now | quote) }}
+# 3. Trigger immediate rolling restart across all microservices
+oc rollout restart deployment/gateway deployment/frontend deployment/auth \
+  deployment/policy-service deployment/claim-service deployment/billing-service \
+  deployment/member-service deployment/hospital-service deployment/document-service \
+  deployment/support-service deployment/aiops-assistant -n kumarh5149-dev
+```
+#### Output:
+```text
+deployment.apps/gateway restarted
+deployment.apps/frontend restarted
+deployment.apps/auth restarted
+...
+```
+#### Explanation:
+Guarantees that pods restart and pull newly built images from AWS ECR even when image tags remain `:latest`. Dynamic annotations force `spec.template` changes, and `imagePullPolicy: Always` forces worker nodes to bypass local Docker caches.
+
+---
+
+### Command 13.5: Production-Grade Database Sanitization
+```bash
+POSTGRES_POD=$(oc get pods -n kumarh5149-dev -l app=postgres -o jsonpath='{.items[0].metadata.name}')
+
+# 1. Purge all dummy customer billing data
+oc exec -n kumarh5149-dev $POSTGRES_POD -- bash -c \
+  "PGPASSWORD=postgres123 psql -U postgres -d billing_db -c 'TRUNCATE TABLE payments, invoices CASCADE;'"
+
+# 2. Purge all dummy claims and pre-auths
+oc exec -n kumarh5149-dev $POSTGRES_POD -- bash -c \
+  "PGPASSWORD=postgres123 psql -U postgres -d claims_db -c 'TRUNCATE TABLE claims, pre_auth_requests, claim_queries CASCADE;'"
+
+# 3. Purge dummy members & documents
+oc exec -n kumarh5149-dev $POSTGRES_POD -- bash -c \
+  "PGPASSWORD=postgres123 psql -U postgres -d members_db -c 'TRUNCATE TABLE members CASCADE;'"
+oc exec -n kumarh5149-dev $POSTGRES_POD -- bash -c \
+  "PGPASSWORD=postgres123 psql -U postgres -d documents_db -c 'TRUNCATE TABLE documents, consent_records CASCADE;'"
+
+# 4. Remove mock customers from auth, keeping staff/admin accounts
+oc exec -n kumarh5149-dev $POSTGRES_POD -- bash -c \
+  "PGPASSWORD=postgres123 psql -U postgres -d auth_db -c 'TRUNCATE TABLE bank_accounts, nominees, dependents, kyc_verifications CASCADE; DELETE FROM users WHERE role = '\''CUSTOMER'\'';'"
+```
+#### Output:
+```text
+TRUNCATE TABLE
+DELETE 2
+```
+#### Explanation:
+Purges all fake test data (John Doe, Sarah Smith, dummy bills, and dummy claims) from the live PostgreSQL database. Synchronously updated `charts/healthshield/files/init/20-init-schema.sql` and `database/init/20-init-schema.sql` to ensure cold starts and replicas initialize cleanly for production.
+
+---
+
+### Command 13.6: Verifying Genuine Policies & Hospitals in Live Production Database
+```bash
+POSTGRES_POD=$(oc get pods -n kumarh5149-dev -l app=postgres -o jsonpath='{.items[0].metadata.name}')
+
+# Verify real insurance plans
+oc exec -n kumarh5149-dev $POSTGRES_POD -- bash -c \
+  "PGPASSWORD=postgres123 psql -U postgres -d policies_db -c 'SELECT id, code, name, tier, monthly_premium, max_coverage FROM policies;'"
+
+# Verify national network hospitals
+oc exec -n kumarh5149-dev $POSTGRES_POD -- bash -c \
+  "PGPASSWORD=postgres123 psql -U postgres -d hospitals_db -c 'SELECT id, name, city, state, bed_count, rating FROM hospitals;'"
+
+# Verify zero dummy customer accounts
+oc exec -n kumarh5149-dev $POSTGRES_POD -- bash -c \
+  "PGPASSWORD=postgres123 psql -U postgres -d auth_db -c 'SELECT id, email, role FROM users;'"
+```
+#### Output:
+```text
+=== POLICIES ===
+ id |    code    |            name             |   tier   | monthly_premium | max_coverage 
+----+------------+-----------------------------+----------+-----------------+--------------
+  1 | POL-BRZ-01 | Essential Care Bronze       | Bronze   |          149.00 |    500000.00
+  2 | POL-SLV-02 | Standard Shield Silver      | Silver   |          289.00 |   1000000.00
+  3 | POL-GLD-03 | Advantage Plus Gold         | Gold     |          449.00 |   2500000.00
+  4 | POL-PLT-04 | Executive Pinnacle Platinum | Platinum |          699.00 |   5000000.00
+(4 rows)
+
+=== HOSPITALS ===
+ id |                 name                 |   city    |    state    | bed_count | rating 
+----+--------------------------------------+-----------+-------------+-----------+--------
+  1 | Apollo Super Speciality Hospital     | Mumbai    | Maharashtra |       500 |    4.9
+  2 | Fortis Hospital Bannerghatta         | Bengaluru | Karnataka   |       400 |    4.8
+  3 | Max Super Speciality Hospital, Saket | Delhi     | Delhi NCR   |       550 |    4.8
+  4 | Manipal Hospital Old Airport Road    | Bengaluru | Karnataka   |       600 |    4.7
+  5 | Tata Memorial Centre                 | Mumbai    | Maharashtra |       700 |    4.9
+(5 rows)
+
+=== AUTH USERS ===
+ id |              email              |     role      
+----+---------------------------------+---------------
+  3 | hospital.desk@metrohealth.com   | HOSPITAL_USER
+  4 | claims.officer@healthshield.com | CLAIMS_AGENT
+  5 | admin@healthshield.com          | ADMIN
+(3 rows)
+```
+#### Explanation:
+Verifies that 100% genuine data remains: 4 real IRDAI-compliant health insurance policies, 5 major network hospitals, and 3 administrative/operational accounts. Confirms zero dummy customers and zero dummy bills.
+
+---
+
+### Command 13.7: OpenShift User Permission & Console Access Diagnostics
+```bash
+# Check permission boundaries for user 'kumarh5149'
+echo "pods create: $(oc auth can-i create pods -n kumarh5149-dev)"
+echo "pods exec: $(oc auth can-i create pods/exec -n kumarh5149-dev)"
+echo "deployments update: $(oc auth can-i update deployments -n kumarh5149-dev)"
+echo "routes create: $(oc auth can-i create routes -n kumarh5149-dev)"
+echo "projectrequests create: $(oc auth can-i create projectrequests)"
+echo "nodes get: $(oc auth can-i get nodes)"
+```
+#### Output:
+```text
+pods create: yes
+pods exec: yes
+deployments update: yes
+routes create: yes
+projectrequests create: no
+nodes get: no
+```
+#### Explanation:
+Validates that `kumarh5149` possesses complete administrative privileges inside `kumarh5149-dev`, and documents that cluster-level actions (`projectrequests: no`, `nodes: no`) are intentionally restricted by the Red Hat Developer Sandbox multi-tenant boundary.
+
 

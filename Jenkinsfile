@@ -71,25 +71,38 @@ pipeline {
             steps {
                 echo "Executing Helm upgrade/install with image tag: ${IMAGE_TAG}..."
                 sh '''
+                    ROLLOUT_TIME=$(date +%s)
                     ${HELM_BIN} upgrade --install healthshield ./charts/healthshield \
                         --namespace ${NAMESPACE} \
-                        --set global.imageTag=${IMAGE_TAG}
+                        --set global.imageTag=${IMAGE_TAG} \
+                        --set global.imagePullPolicy=Always \
+                        --set global.rolloutTimestamp="${ROLLOUT_TIME}"
                 '''
             }
         }
 
         stage('5. Verify Rollout Health') {
             steps {
-                echo "Verifying service rollouts..."
+                echo "Triggering rolling update across microservices to fetch latest ECR image layers..."
                 sh '''
-                    echo "Checking PostgreSQL..."
-                    oc rollout status deployment/postgres -n ${NAMESPACE} --timeout=120s || true
-                    echo "Checking Kafka..."
-                    oc rollout status deployment/kafka -n ${NAMESPACE} --timeout=120s || true
-                    echo "Checking Gateway..."
+                    oc rollout restart deployment/gateway \
+                        deployment/frontend \
+                        deployment/auth \
+                        deployment/policy-service \
+                        deployment/claim-service \
+                        deployment/member-service \
+                        deployment/hospital-service \
+                        deployment/billing-service \
+                        deployment/document-service \
+                        deployment/support-service \
+                        deployment/aiops-assistant \
+                        -n ${NAMESPACE}
+
+                    echo "Awaiting rolling updates..."
                     oc rollout status deployment/gateway -n ${NAMESPACE} --timeout=120s || true
-                    echo "Checking Frontend..."
                     oc rollout status deployment/frontend -n ${NAMESPACE} --timeout=120s || true
+                    oc rollout status deployment/auth -n ${NAMESPACE} --timeout=120s || true
+                    oc rollout status deployment/aiops-assistant -n ${NAMESPACE} --timeout=120s || true
                 '''
             }
         }

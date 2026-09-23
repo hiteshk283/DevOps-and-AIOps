@@ -125,5 +125,82 @@ oc scale dc/jenkins --replicas=0 -n kumarh5149-dev
 oc scale dc/jenkins --replicas=1 -n kumarh5149-dev
 ```
 
+---
+
+## 6. OpenShift Developer Sandbox Architecture & Resource Quotas
+
+Red Hat OpenShift Developer Sandbox enforces strict cluster-level quotas that require specific configuration in Helm charts and Kubernetes manifests:
+
+### A. The 30 ReplicaSets Quota Limit (`count/replicasets.apps = 30`)
+* **The Constraint**: The sandbox enforces a hard ceiling of 30 ReplicaSets across the namespace (`for-kumarh5149-replicas`).
+* **The Trap**: By default, Kubernetes deployments specify `revisionHistoryLimit: 10`. With 14 deployments running (microservices + Postgres + Kafka + Loki + Frontend), even 2 revisions per service equals 28 ReplicaSets. A 3rd revision immediately fails with:
+  ```text
+  Warning ReplicaSetCreateError: Failed to create new replica set:
+  replicasets.apps is forbidden: exceeded quota: for-kumarh5149-replicas, limited: count/replicasets.apps=30
+  ```
+* **The Solution**: Set `revisionHistoryLimit: 1` explicitly across all Helm deployment templates. When a new rollout triggers, Kubernetes prunes the previous inactive ReplicaSet immediately, keeping total namespace ReplicaSets between 12 and 15.
+
+### B. Pruning Stale ReplicaSets Command
+```bash
+# Delete all 0-replica inactive ReplicaSets
+oc get rs -n kumarh5149-dev -o jsonpath='{range .items[?(@.spec.replicas==0)]}{.metadata.name}{"\n"}{end}' | xargs -r oc delete rs -n kumarh5149-dev
+```
+
+---
+
+## 7. Pod Rolling Restarts & Image Pull Behavior
+
+### Why Pods Don't Restart on New Image Pushes
+When using mutable image tags like `:latest`, running `helm upgrade` without template modifications will **not restart pods**. 
+1. **Idempotent Manifests**: Kubernetes only updates pods if `spec.template` changes. If the image is `my-app:latest` before and after deployment, Kubernetes sees no changes.
+2. **Node-Level Image Caching**: If `imagePullPolicy` is `IfNotPresent`, the node reuses its cached Docker layer even if a pod restarts.
+
+### How HealthShield Enforces Immediate Restarts:
+1. **Dynamic Rollout Annotation**:
+   In every Helm deployment template:
+   ```yaml
+   template:
+     metadata:
+       annotations:
+         rolloutTimestamp: {{ .Values.global.rolloutTimestamp | default (now | quote) }}
+   ```
+2. **Force ECR Layer Pulling**:
+   In `charts/healthshield/values.yaml`:
+   ```yaml
+   global:
+     imagePullPolicy: Always
+   ```
+3. **Automated Rollout Restart in Jenkins CD Pipeline**:
+   ```groovy
+   stage('Rolling Restart & Fresh Image Pull') {
+       steps {
+           sh '''
+           oc rollout restart deployment/gateway deployment/frontend deployment/auth \
+             deployment/policy-service deployment/claim-service deployment/billing-service \
+             deployment/member-service deployment/hospital-service deployment/document-service \
+             deployment/support-service deployment/aiops-assistant -n kumarh5149-dev
+           '''
+       }
+   }
+   ```
+
+---
+
+## 8. OpenShift Web Console: Permissions & Perspective Troubleshooting
+
+If actions or buttons appear disabled, greyed out, or forbidden in the OpenShift Web Console:
+
+1. **Check Perspective (Top-Left Dropdown)**:
+   * **Developer Perspective (Recommended)**: Shows Topology, Pods, Deployments, Logs, Terminal, and Helm Releases. All actions in your assigned project work.
+   * **Administrator Perspective**: Clicking cluster-scoped menus (*Nodes, Operators, Cluster Settings, CRDs*) will result in `Forbidden: User cannot list resource at cluster scope`.
+2. **Check Project Dropdown (Top Bar)**:
+   * Ensure **`Project: kumarh5149-dev`** is selected.
+   * If `All Projects`, `sandbox-shared-models`, or `openshift-virtualization-os-images` is selected, all mutation buttons (*Add, Create, Edit, Delete*) are disabled because those projects are read-only.
+3. **Session Expiry**:
+   * OpenShift Web Console OAuth tokens expire after extended sessions. If forms or buttons become unresponsive, refresh the browser (`Ctrl + Shift + R`) or log out and log back in via Red Hat SSO.
+
+---
+
 For the complete list of all OpenShift, Helm, and AWS commands, see [docs/COMMANDS_USED_TODAY.md](./COMMANDS_USED_TODAY.md).
+
 
