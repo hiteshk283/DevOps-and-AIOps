@@ -47,7 +47,7 @@ pipeline {
             }
         }
 
-        stage('3. Uninstall Helm Release') {
+        stage('3. Uninstall Helm Release & Free Quota') {
             steps {
                 echo "Uninstalling Helm release: ${RELEASE_NAME}..."
                 sh '''
@@ -57,6 +57,9 @@ pipeline {
                     else
                         echo "Release ${RELEASE_NAME} is not installed in namespace ${TARGET_NAMESPACE}. Nothing to uninstall."
                     fi
+
+                    echo "Pruning any leftover ReplicaSets to free OpenShift Sandbox quota..."
+                    oc delete rs -l app.kubernetes.io/part-of=healthshield -n ${TARGET_NAMESPACE} --ignore-not-found=true
                 '''
             }
         }
