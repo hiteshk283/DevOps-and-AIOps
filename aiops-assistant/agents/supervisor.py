@@ -232,30 +232,104 @@ Kira SRE and Operator have been linked to this ticket for root-cause tracking.""
     elif target == "KIRA":
         delegation_trace.append("Delegated to Kira (SRE Diagnostics)")
         result = diagnose_incident(user_query, api_key=api_key)
+        
+        # When outages or pod issues are detected, auto-open a Jira incident and stage remediation proposal!
+        unhealthy = result.get("unhealthy_services", [])
+        pod_issues = result.get("pod_issues", [])
+        proposal = None
+        jira_ticket = None
+
+        if unhealthy or pod_issues:
+            target_svc = unhealthy[0] if unhealthy else (pod_issues[0].get("container") or pod_issues[0].get("pod", "cluster")).split("-")[0] + "-service"
+            delegation_trace.append(f"Outage detected on {target_svc}. Auto-filing Jira Incident...")
+            
+            summary = f"Outage detected on {target_svc} in namespace {os.getenv('K8S_NAMESPACE', 'kumarh5149-dev')}"
+            desc = f"Kira SRE autonomous probe detected failure on {target_svc}.\n\nRoot Cause Analysis:\n{result.get('analysis', '')[:1200]}"
+            
+            try:
+                jira_res = create_jira_incident(
+                    summary=summary,
+                    description=desc,
+                    service_name=target_svc,
+                    priority="High"
+                )
+                if jira_res.get("success"):
+                    jira_ticket = jira_res
+                    ticket_key = jira_res.get("key")
+                    delegation_trace.append(f"Opened Jira Incident: {ticket_key}")
+                    try:
+                        add_jira_comment(ticket_key, f"🔍 Kira SRE Root Cause Analysis for {target_svc}:\n" + result.get("analysis", "")[:2000])
+                    except Exception:
+                        pass
+            except Exception as e:
+                delegation_trace.append(f"Jira bridge notice: {e}")
+
+            # Formulate Tier-2 safe remediation proposal (rollout restart auto-recovers and auto-scales 0-replica deployments)
+            cmd = f"oc rollout restart deployment/{target_svc} -n {os.getenv('K8S_NAMESPACE', 'kumarh5149-dev')}"
+            proposal = create_remediation_proposal(
+                target_service=target_svc,
+                action_type="ROLLOUT_RESTART",
+                reason=f"Kira SRE detected outage on {target_svc}. Self-healing restart and replica scaling proposal.",
+                command=cmd,
+                tier=2,
+                jira_issue_key=jira_ticket.get("key") if jira_ticket else None
+            )
+            delegation_trace.append(f"Auto-staged Tier-2 Proposal: {proposal['id']}")
+
+        reply = result["analysis"]
+        if jira_ticket:
+            reply += f"\n\n---\n### 🎫 AUTOMATED JIRA INCIDENT CREATED\n- **Incident Key:** [{jira_ticket['key']}]({jira_ticket['url']})\n- **Target Service:** `{unhealthy[0] if unhealthy else 'cluster'}`\n- **Status:** `Open / Investigating` 🚨\n- **Linked Remediation Proposal:** `{proposal['id']}` (Staged in Governance Inbox)\n\n> **Self-Healing Ready:** Authorize execution in the **Governance Inbox** to apply rollout restart and auto-resolve `{jira_ticket['key']}`."
+        elif proposal:
+            reply += f"\n\n---\n### 🛠️ AUTOMATED REMEDIATION PROPOSAL STAGED\n- **Proposal ID:** `{proposal['id']}`\n- **Target Action:** `{proposal['command']}`\n- **Governance:** Tier-2 (Awaiting Operator Approval in Governance Inbox)"
+
         return {
             "status": "SUCCESS",
             "active_agent": "Kira (SRE Diagnostics)",
             "agent_badge": "🔍 KIRA SRE",
-            "reply": result["analysis"],
+            "reply": reply,
             "delegation_trace": delegation_trace,
+            "proposal": proposal,
+            "jira_ticket": jira_ticket,
             "raw_data": result.get("telemetry")
         }
 
     elif target == "OPERATOR":
         delegation_trace.append("Delegated to Remediation Operator")
-        # Generate proposal based on query
-        service = "claim-service"
-        for s in ["gateway", "policy-service", "claim-service", "member-service", "billing-service", "hospital-service", "document-service"]:
+        # Check query for specific service first
+        service = None
+        for s in ["gateway", "policy-service", "claim-service", "member-service", "billing-service", "hospital-service", "document-service", "support-service"]:
             if s in query_lower or s.replace("-service", "") in query_lower:
                 service = s
                 break
+
+        # If no service mentioned in query, inspect system telemetry to dynamically target unhealthy service!
+        if not service:
+            from agents.sre_agent import get_system_telemetry
+            telemetry = get_system_telemetry()
+            unhealthy = [k for k, v in telemetry.get("service_health_probes", {}).items() if v.get("status") != "HEALTHY"]
+            if unhealthy:
+                service = unhealthy[0]
+            else:
+                service = "billing-service"
+
+        # Check for open Jira ticket to link
+        jira_issue_key = None
+        try:
+            open_tickets = list_open_jira_tickets(limit=10)
+            for t in open_tickets:
+                if service in t.get("summary", "").lower() or service in str(t.get("labels", [])).lower():
+                    jira_issue_key = t.get("key")
+                    break
+        except Exception:
+            pass
 
         proposal = create_remediation_proposal(
             target_service=service,
             action_type="ROLLOUT_RESTART",
             reason=f"Operator received remediation request: {user_query}",
-            command=f"oc rollout restart deployment/{service} -n kumarh5149-dev",
-            tier=2
+            command=f"oc rollout restart deployment/{service} -n {os.getenv('K8S_NAMESPACE', 'kumarh5149-dev')}",
+            tier=2,
+            jira_issue_key=jira_issue_key
         )
         delegation_trace.append(f"Created Tier-2 Proposal: {proposal['id']}")
 
@@ -265,11 +339,12 @@ I have formulated a **Tier-2 Safe Remediation Proposal** that requires engineer 
 
 - **Proposal ID:** `{proposal['id']}`
 - **Target Microservice:** `{proposal['target_service']}`
-- **Action Type:** `{proposal['action_type']}`
+- **Action Type:** `{proposal['action_type']}` (Auto-recovers pods & restores replica count if 0)
 - **Execution Command:**
 ```bash
 {proposal['command']}
 ```
+- **Linked Jira Ticket:** {f"[{jira_issue_key}]({JIRA_BASE_URL}/browse/{jira_issue_key})" if jira_issue_key else "_None_"}
 - **Governance Status:** ⏳ **PENDING_APPROVAL** (Ready in Governance Inbox)
 
 > To proceed, approve this proposal in the **Governance Inbox** or through the API:

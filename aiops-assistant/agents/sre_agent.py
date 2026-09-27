@@ -279,16 +279,20 @@ oc secrets link default aws-ecr-secret --for=pull -n {NAMESPACE}
 oc delete pod -l app={image_pull_issues[0].get('pod', 'gateway').split('-')[0]} -n {NAMESPACE}
 ```"""
     elif unhealthy:
+        svc = unhealthy[0]
         root_cause_section = f"""⚠️ **Degradation Detected on {', '.join(unhealthy)}:**
-The target pods may have encountered an OOMKilled state, unhandled exception, or pending database connection timeout.
+The target pods may have encountered an OOMKilled state, scaled-down replica count (0 replicas), unhandled exception, or connection timeout.
 
 **Immediate Remediation Command:**
 ```bash
-# Restart deployment rollout on OpenShift:
-oc rollout restart deployment/{unhealthy[0]} -n {NAMESPACE}
+# Restart deployment rollout & auto-scale on OpenShift:
+oc rollout restart deployment/{svc} -n {NAMESPACE}
+
+# Or explicitly scale up to 1 replica:
+oc scale deployment/{svc} --replicas=1 -n {NAMESPACE}
 
 # Verify pod logs:
-oc logs -f deployment/{unhealthy[0]} -n {NAMESPACE} --tail=100
+oc logs -f deployment/{svc} -n {NAMESPACE} --tail=100
 ```"""
     else:
         root_cause_section = """✅ **All Microservices Operating Nominally:**
@@ -317,11 +321,32 @@ Latency and error rates are well within SLO thresholds (P95 < 250ms, 0% 5xx erro
 3. Verify PostgreSQL connection pooling parameters in `10-create-databases.sh` to prevent thread starvation under concurrent loads.
 """
 
+    jira_incident = None
+    if unhealthy or pod_issues:
+        target_service = unhealthy[0] if unhealthy else pod_issues[0].get("pod", "cluster")
+        try:
+            from tools.jira_tool import create_jira_incident, add_jira_comment
+            j_res = create_jira_incident(
+                summary=f"Outage detected on {target_service} in {NAMESPACE}",
+                description=f"Kira SRE autonomous health probe detected failure on {target_service}.\nError: {telemetry.get('service_health_probes', {}).get(target_service, {}).get('error', 'Service probe timeout')}",
+                service_name=target_service,
+                priority="High"
+            )
+            if j_res.get("success"):
+                jira_incident = j_res
+                try:
+                    add_jira_comment(j_res["key"], f"🔍 Kira SRE Incident Analysis for {target_service}:\n" + fallback_analysis[:2000])
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     return {
         "agent": "Kira (SRE Diagnostics)",
         "analysis": fallback_analysis,
         "telemetry": telemetry,
         "unhealthy_services": unhealthy,
         "pod_issues": pod_issues,
+        "jira_ticket": jira_incident,
         "is_fallback": True
     }

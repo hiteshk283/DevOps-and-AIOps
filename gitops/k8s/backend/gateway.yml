@@ -27,7 +27,7 @@ spec:
             - name: POLICIES_SERVICE_URL
               value: "http://policy-service:3003"
             - name: CLAIMS_SERVICE_URL
-              value: "http://claim-service:3004"
+              value: "http://claim-service:3006"
             - name: MEMBERS_SERVICE_URL
               value: "http://member-service:3005"
           resources:

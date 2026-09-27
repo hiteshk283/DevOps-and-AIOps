@@ -135,6 +135,9 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
       const res = await api.approveAgentProposal(proposalId);
       showToast(res.message || `Action ${proposalId} executed successfully!`);
       setProposals(prev => prev.filter(p => p.id !== proposalId));
+      setTimeout(() => {
+        loadSwarmData();
+      }, 1500);
     } catch {
       showToast(`Approved ${proposalId} (local simulated execution)`);
       setProposals(prev => prev.filter(p => p.id !== proposalId));
@@ -147,6 +150,9 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
     try {
       const res = await api.chatWithAgentSwarm("Kira, run complete cluster root cause analysis and metric correlation");
       setSreDiagnosis(res.reply);
+      if (res.proposal) {
+        setProposals(prev => [res.proposal, ...prev.filter(p => p.id !== res.proposal.id)]);
+      }
       const agentMsg: AgentChatMessage = {
         id: `agent-${Date.now()}`,
         sender: 'agent',
@@ -158,7 +164,11 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
         proposal: res.proposal
       };
       setMessages(prev => [...prev, agentMsg]);
-      showToast('🔍 Kira SRE diagnosis completed! Report displayed below.');
+      if (res.proposal) {
+        showToast(`🚨 Outage detected on ${res.proposal.target_service}! Staged Proposal ${res.proposal.id}`);
+      } else {
+        showToast('🔍 Kira SRE diagnosis completed! Report displayed below.');
+      }
     } catch {
       showToast('⚠️ Could not complete SRE diagnostics.');
     } finally {
@@ -170,23 +180,27 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
   const handleProposeRestart = async () => {
     setRunningSreDiag(true);
     try {
-      const res = await api.chatWithAgentSwarm("Operator, propose a rolling restart of claim-service deployment in OpenShift");
+      const probes = telemetry?.service_health_probes || {};
+      const unhealthyEntry = Object.entries(probes).find(([_, p]: [string, any]) => p.status !== 'HEALTHY');
+      const targetService = unhealthyEntry ? unhealthyEntry[0] : 'billing-service';
+
+      const res = await api.chatWithAgentSwarm(`Operator, propose a rolling restart of ${targetService} deployment in OpenShift`);
       if (res.proposal) {
-        setProposals(prev => [res.proposal, ...prev]);
+        setProposals(prev => [res.proposal, ...prev.filter(p => p.id !== res.proposal.id)]);
       }
       const agentMsg: AgentChatMessage = {
         id: `agent-${Date.now()}`,
         sender: 'agent',
         agentBadge: res.agent_badge || '🛠️ OPERATOR',
         agentName: res.active_agent || 'Remediation Operator',
-        text: res.reply || 'Proposal formulated.',
+        text: res.reply || `Proposal formulated for ${targetService}.`,
         timestamp: new Date().toLocaleTimeString(),
         delegationTrace: res.delegation_trace,
         proposal: res.proposal
       };
       setMessages(prev => [...prev, agentMsg]);
       setActiveTab('governance');
-      showToast('🛠️ Remediation proposal formulated! Staged in Governance Inbox.');
+      showToast(`🛠️ Remediation proposal formulated for ${targetService}! Staged in Governance Inbox.`);
     } catch {
       showToast('⚠️ Could not formulate proposal.');
     } finally {
@@ -639,7 +653,10 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
               disabled={runningSreDiag}
               style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', padding: '0.65rem 1.4rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
             >
-              🛠️ Propose Safe Rolling Restart
+              {(() => {
+                const unhealthy = Object.entries(telemetry?.service_health_probes || {}).find(([_, p]: [string, any]) => p.status !== 'HEALTHY');
+                return unhealthy ? `🛠️ Propose Restart for ${unhealthy[0]}` : '🛠️ Propose Safe Rolling Restart';
+              })()}
             </button>
             <button
               onClick={() => setActiveTab('chat')}
@@ -666,6 +683,27 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
               <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.6', maxHeight: '420px', overflowY: 'auto', background: '#070b14', padding: '1rem', borderRadius: '6px' }}>
                 {sreDiagnosis}
               </div>
+
+              {/* Direct Actions inside SRE report */}
+              {proposals.length > 0 && (
+                <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid #1e293b', display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+                  <button
+                    onClick={() => {
+                      const latest = proposals[0];
+                      handleApproveProposal(latest.id);
+                    }}
+                    style={{ background: '#10b981', color: '#fff', border: 'none', padding: '0.55rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                  >
+                    <span>✅</span> Execute Self-Healing ({proposals[0].id} on {proposals[0].target_service})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('governance')}
+                    style={{ background: '#1e293b', color: '#f59e0b', border: '1px solid #f59e0b', padding: '0.55rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}
+                  >
+                    ⏳ View in Governance Inbox ({proposals.length})
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -800,6 +838,11 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
                       </span>
                       <strong style={{ marginLeft: '0.6rem', color: '#f8fafc' }}>{prop.action_type} on {prop.target_service}</strong>
                       <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.6rem' }}>({prop.id})</span>
+                      {prop.jira_issue_key && (
+                        <span style={{ marginLeft: '0.6rem', fontSize: '0.75rem', color: '#38bdf8' }}>
+                          🎫 Jira: <a href={`https://kumarh5149.atlassian.net/browse/${prop.jira_issue_key}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'underline', fontWeight: 600 }}>{prop.jira_issue_key}</a>
+                        </span>
+                      )}
                     </div>
 
                     <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 600 }}>⏳ {prop.status}</span>
