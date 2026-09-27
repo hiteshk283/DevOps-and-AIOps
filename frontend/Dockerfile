@@ -12,6 +12,7 @@ RUN npm config set fetch-retries 5 \
     && (npm install --legacy-peer-deps --no-audit || (echo "Retrying npm install..." && sleep 3 && npm install --legacy-peer-deps --no-audit))
 
 COPY . .
+ENV REACT_APP_API_URL=/api
 RUN npm run build
 
 # Production server stage

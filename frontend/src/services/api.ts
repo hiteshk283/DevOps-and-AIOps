@@ -1,7 +1,10 @@
 import axios from 'axios';
 import { PolicyPlan, QuoteCalculation, EnrolledMember, ClaimRecord, HospitalRecord, SupportTicket, DataConsent, AgentInfo, AgentProposal } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const API_BASE_URL = process.env.REACT_APP_API_URL 
+  ? process.env.REACT_APP_API_URL 
+  : (isLocalhost ? 'http://localhost:3001/api' : '/api');
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -644,7 +647,8 @@ export const api = {
       return res.data;
     } catch {
       try {
-        const direct = await axios.get('http://localhost:3011/api/agents/status', { timeout: 3000 });
+        const directUrl = isLocalhost ? 'http://localhost:3011/api/agents/status' : '/api/agents/status';
+        const direct = await axios.get(directUrl, { timeout: 4000 });
         return direct.data;
       } catch {
         return {
@@ -677,7 +681,8 @@ export const api = {
       return res.data;
     } catch {
       try {
-        const directRes = await axios.post('http://localhost:3011/api/agents/chat', { query, api_key: apiKey }, { timeout: 12000 });
+        const directUrl = isLocalhost ? 'http://localhost:3011/api/agents/chat' : '/api/agents/chat';
+        const directRes = await axios.post(directUrl, { query, api_key: apiKey }, { timeout: 12000 });
         return directRes.data;
       } catch {
         return {
@@ -696,7 +701,8 @@ export const api = {
       return res.data;
     } catch {
       try {
-        const direct = await axios.get('http://localhost:3011/api/agents/proposals');
+        const directUrl = isLocalhost ? 'http://localhost:3011/api/agents/proposals' : '/api/agents/proposals';
+        const direct = await axios.get(directUrl);
         return direct.data;
       } catch {
         return [];
@@ -709,7 +715,8 @@ export const api = {
       const res = await apiClient.post(`/agents/proposals/${proposalId}/approve`);
       return res.data;
     } catch {
-      const direct = await axios.post(`http://localhost:3011/api/agents/proposals/${proposalId}/approve`);
+      const directUrl = isLocalhost ? `http://localhost:3011/api/agents/proposals/${proposalId}/approve` : `/api/agents/proposals/${proposalId}/approve`;
+      const direct = await axios.post(directUrl);
       return direct.data;
     }
   },
@@ -730,7 +737,8 @@ export const api = {
       return res.data;
     } catch {
       try {
-        const direct = await axios.get('http://localhost:3011/api/agents/jira/tickets');
+        const directUrl = isLocalhost ? 'http://localhost:3011/api/agents/jira/tickets' : '/api/agents/jira/tickets';
+        const direct = await axios.get(directUrl);
         return direct.data;
       } catch {
         return [];
@@ -743,7 +751,8 @@ export const api = {
       const res = await apiClient.post('/agents/jira/create', ticket);
       return res.data;
     } catch {
-      const direct = await axios.post('http://localhost:3011/api/agents/jira/create', ticket);
+      const directUrl = isLocalhost ? 'http://localhost:3011/api/agents/jira/create' : '/api/agents/jira/create';
+      const direct = await axios.post(directUrl, ticket);
       return direct.data;
     }
   },
@@ -753,7 +762,8 @@ export const api = {
       const res = await apiClient.post(`/agents/jira/${issueKey}/resolve`, { note });
       return res.data;
     } catch {
-      const direct = await axios.post(`http://localhost:3011/api/agents/jira/${issueKey}/resolve`, { note });
+      const directUrl = isLocalhost ? `http://localhost:3011/api/agents/jira/${issueKey}/resolve` : `/api/agents/jira/${issueKey}/resolve`;
+      const direct = await axios.post(directUrl, { note });
       return direct.data;
     }
   },
@@ -763,7 +773,8 @@ export const api = {
       const res = await apiClient.post('/agents/jira/poll');
       return res.data;
     } catch {
-      const direct = await axios.post('http://localhost:3011/api/agents/jira/poll');
+      const directUrl = isLocalhost ? 'http://localhost:3011/api/agents/jira/poll' : '/api/agents/jira/poll';
+      const direct = await axios.post(directUrl);
       return direct.data;
     }
   }
