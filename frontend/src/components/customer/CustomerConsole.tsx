@@ -27,7 +27,7 @@ export const CustomerConsole: React.FC<CustomerConsoleProps> = ({
   onRefreshData,
   showToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'plans' | 'policies' | 'hospitals' | 'claims' | 'support' | 'consent'>('plans');
+  const [activeTab, setActiveTab] = useState<'plans' | 'policies' | 'hospitals' | 'claims' | 'support' | 'consent' | 'gateway_routes'>('plans');
 
   // Hospital filter
   const [searchCity, setSearchCity] = useState<string>('');
@@ -183,7 +183,8 @@ export const CustomerConsole: React.FC<CustomerConsoleProps> = ({
           { id: 'hospitals', label: '🏥 Cashless Hospital Finder' },
           { id: 'claims', label: '📋 Claims (Cashless & Reimbursement)' },
           { id: 'support', label: '🎫 Support Desk (Jira JSM)' },
-          { id: 'consent', label: '🔐 Consent Manager (IRDAI)' }
+          { id: 'consent', label: '🔐 Consent Manager (IRDAI)' },
+          { id: 'gateway_routes', label: '🔀 Gateway Route Table (Port 3001)' }
         ].map((tab) => {
           const isSelected = activeTab === tab.id;
           return (
@@ -873,6 +874,81 @@ export const CustomerConsole: React.FC<CustomerConsoleProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {/* =========================================================================
+          TAB 7: API GATEWAY REVERSE PROXY ROUTE TABLE (PORT 3001)
+          ========================================================================= */}
+      {activeTab === 'gateway_routes' && (
+        <div style={{ background: '#162032', borderRadius: 16, border: '1px solid #293859', padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                <span style={{ fontSize: 22 }}>🔀</span>
+                <h3 style={{ margin: 0, fontSize: 18, color: '#fff', fontWeight: 800 }}>
+                  API Gateway Reverse Proxy Route Table (Port 3001)
+                </h3>
+                <span style={{ fontSize: 11, background: '#0284c7', color: '#fff', fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+                  PORT 3001
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
+                Active upstream routing matrix, circuit breaker failure budgets, and real-time Prometheus telemetry metrics.
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#070c1a', padding: '6px 14px', borderRadius: 8, border: '1px solid #1e293b' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399', boxShadow: '0 0 8px #34d399' }} />
+              <span style={{ fontSize: 12, color: '#34d399', fontWeight: 600 }}>All Circuits Closed &amp; Healthy</span>
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid #1e293b' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, background: '#0b132b' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #293859', color: '#94a3b8', textAlign: 'left', background: '#0f172a' }}>
+                  <th style={{ padding: '12px 16px', fontWeight: 700 }}>Inbound Route</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 700 }}>Upstream Target</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 700 }}>Timeout Budget</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 700 }}>Circuit Breaker State</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 700 }}>Prometheus Metrics</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { route: '/api/policies', upstream: 'http://policy-service:3003', timeout: '5000ms', cb: 'CLOSED (Healthy)', metrics: 'http_request_duration_seconds' },
+                  { route: '/api/members', upstream: 'http://member-service:3005', timeout: '5000ms', cb: 'CLOSED (Healthy)', metrics: 'member_enrollments_total' },
+                  { route: '/api/claims', upstream: 'http://claim-service:3004', timeout: '8000ms', cb: 'CLOSED (Healthy)', metrics: 'claim_fraud_score_gauge' },
+                  { route: '/api/billing', upstream: 'http://billing-service:3006', timeout: '8000ms', cb: 'CLOSED (Healthy)', metrics: 'billing_idempotency_hits_total' },
+                  { route: '/api/hospitals', upstream: 'http://hospital-service:3008', timeout: '4000ms', cb: 'CLOSED (Healthy)', metrics: 'hospital_preauth_requests_total' },
+                  { route: '/api/support', upstream: 'http://support-service:3010', timeout: '6000ms', cb: 'CLOSED (Healthy)', metrics: 'jira_tickets_dispatched_total' }
+                ].map((r, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                    <td style={{ padding: '12px 16px', fontFamily: 'monospace', color: '#38bdf8', fontWeight: 600 }}>{r.route}</td>
+                    <td style={{ padding: '12px 16px', fontFamily: 'monospace', color: '#cbd5e1' }}>{r.upstream}</td>
+                    <td style={{ padding: '12px 16px', color: '#fbbf24', fontWeight: 600 }}>{r.timeout}</td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        background: 'rgba(52, 211, 153, 0.12)',
+                        color: '#34d399',
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        border: '1px solid rgba(52, 211, 153, 0.25)'
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399' }} />
+                        {r.cb}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 16px', fontFamily: 'monospace', color: '#a78bfa' }}>{r.metrics}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
