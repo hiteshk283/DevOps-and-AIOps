@@ -240,6 +240,7 @@ export interface AgentProposal {
   tier: number;
   reason: string;
   command: string;
+  jira_issue_key?: string;
   status: 'PENDING_APPROVAL' | 'SUCCESS' | 'FAILED' | 'REJECTED' | 'AUTO_EXECUTED';
   created_at: string;
   executed_at?: string;

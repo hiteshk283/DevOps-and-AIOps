@@ -74,12 +74,23 @@ def execute_k8s_api_action(command: str) -> Optional[Dict[str, Any]]:
     ctx.verify_mode = ssl.CERT_NONE
     token = open(token_path).read().strip()
 
-    # Pattern 1: rollout restart deployment/<name>
-    m_restart = re.search(r"rollout\s+restart\s+deployment/([a-zA-Z0-9_\.-]+)", command)
+    # Pattern 1: rollout restart deployment/<name> or rollout restart deployment <name>
+    m_restart = re.search(r"rollout\s+restart\s+deployment[/ ]([a-zA-Z0-9_\.-]+)", command)
     if m_restart:
         dep_name = m_restart.group(1)
         url = f"https://kubernetes.default.svc/apis/apps/v1/namespaces/{NAMESPACE}/deployments/{dep_name}"
-        patch = json.dumps({
+        
+        # Check current replicas count
+        current_replicas = 1
+        try:
+            req_get = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(req_get, context=ctx, timeout=5) as r_get:
+                dep_data = json.loads(r_get.read().decode("utf-8"))
+                current_replicas = dep_data.get("spec", {}).get("replicas", 1)
+        except Exception:
+            pass
+
+        patch_dict: Dict[str, Any] = {
             "spec": {
                 "template": {
                     "metadata": {
@@ -89,7 +100,12 @@ def execute_k8s_api_action(command: str) -> Optional[Dict[str, Any]]:
                     }
                 }
             }
-        }).encode("utf-8")
+        }
+        # If the service was stopped (0 replicas), automatically scale it back up to 1!
+        if current_replicas == 0:
+            patch_dict["spec"]["replicas"] = 1
+
+        patch = json.dumps(patch_dict).encode("utf-8")
         req = urllib.request.Request(
             url,
             data=patch,
@@ -101,15 +117,16 @@ def execute_k8s_api_action(command: str) -> Optional[Dict[str, Any]]:
         )
         try:
             with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
+                extra = " (Auto-scaled from 0 to 1 replica)" if current_replicas == 0 else ""
                 return {
                     "success": True,
-                    "output": f"✅ Rollout restart triggered for deployment/{dep_name} via in-cluster Kubernetes API (HTTP {r.getcode()})."
+                    "output": f"✅ Rollout restart triggered for deployment/{dep_name} via in-cluster Kubernetes API{extra}."
                 }
         except Exception as e:
             return {"success": False, "output": f"Kubernetes API restart failed for {dep_name}: {e}"}
 
-    # Pattern 2: scale deployment/<name> --replicas=<n>
-    m_scale = re.search(r"scale\s+deployment/([a-zA-Z0-9_\.-]+)\s+--replicas=(\d+)", command)
+    # Pattern 2: scale deployment/<name> --replicas=<n> or scale deployment <name> --replicas=<n>
+    m_scale = re.search(r"scale\s+deployment[/ ]([a-zA-Z0-9_\.-]+)\s+--replicas=(\d+)", command)
     if m_scale:
         dep_name = m_scale.group(1)
         replicas = int(m_scale.group(2))
@@ -143,6 +160,9 @@ def execute_action(command: str) -> Dict[str, Any]:
         "oc rollout restart",
         "oc scale",
         "kubectl rollout restart",
+        "kubectl scale",
+        "rollout restart",
+        "scale deployment",
         "helm rollback",
         "docker restart",
         "oc create secret docker-registry aws-ecr-secret",
@@ -157,6 +177,11 @@ def execute_action(command: str) -> Dict[str, Any]:
             "output": f"Security Policy Violation: Command '{command}' not in allowed remediation whitelist."
         }
 
+    # Prioritize in-cluster Kubernetes API (fast, reliable, does not depend on oc/kubectl binary)
+    k8s_api_res = execute_k8s_api_action(command)
+    if k8s_api_res and k8s_api_res["success"]:
+        return k8s_api_res
+
     try:
         res = subprocess.run(
             command,
@@ -168,8 +193,6 @@ def execute_action(command: str) -> Dict[str, Any]:
         if res.returncode == 0:
             return {"success": True, "output": res.stdout.strip() or "Command completed successfully."}
         else:
-            # If CLI failed because oc/kubectl is not installed (code 127) or failed, try k8s API
-            k8s_api_res = execute_k8s_api_action(command)
             if k8s_api_res:
                 return k8s_api_res
             return {
@@ -177,7 +200,6 @@ def execute_action(command: str) -> Dict[str, Any]:
                 "output": f"Execution returned non-zero code {res.returncode}: {res.stderr.strip() or res.stdout.strip()}"
             }
     except Exception as e:
-        k8s_api_res = execute_k8s_api_action(command)
         if k8s_api_res:
             return k8s_api_res
         return {
