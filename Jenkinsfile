@@ -117,8 +117,10 @@ pipeline {
                     if [ -z "${JIRA_USER_EMAIL}" ]; then
                         JIRA_USER_EMAIL="kumarh5149@gmail.com"
                     fi
-                    if [ -z "${JIRA_API_TOKEN}" ]; then
-                        JIRA_API_TOKEN=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.JIRA_API_TOKEN}' 2>/dev/null | base64 -d || true)
+                    # Always fetch latest live secret directly from OpenShift to avoid stale pod env vars
+                    LIVE_TOKEN=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.JIRA_API_TOKEN}' 2>/dev/null | base64 -d || true)
+                    if [ -n "${LIVE_TOKEN}" ]; then
+                        JIRA_API_TOKEN="${LIVE_TOKEN}"
                     fi
 
                     if [ -n "${JIRA_API_TOKEN}" ] && [ -n "${JIRA_BASE_URL}" ]; then
