@@ -97,6 +97,33 @@ def check_all_services_health() -> Dict[str, Any]:
     return report
 
 
+def fetch_pod_logs(pod_name: str, tail_lines: int = 30) -> str:
+    """Fetch stdout/stderr logs from a pod to diagnose crash cause."""
+    token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    if os.path.exists(token_path):
+        try:
+            import ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            token = open(token_path).read().strip()
+            url = f"https://kubernetes.default.svc/api/v1/namespaces/{NAMESPACE}/pods/{pod_name}/log?tailLines={tail_lines}"
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(req, context=ctx, timeout=4) as resp:
+                return resp.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            pass
+
+    try:
+        res = subprocess.run(f"oc logs {pod_name} -n {NAMESPACE} --tail={tail_lines}", shell=True, capture_output=True, text=True, timeout=5)
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+
+    return ""
+
+
 def get_k8s_cluster_pod_status() -> Dict[str, Any]:
     """Inspect live OpenShift / Kubernetes pod states and warning events."""
     data = None
@@ -163,19 +190,25 @@ def get_k8s_cluster_pod_status() -> Dict[str, Any]:
                 if waiting:
                     reason = waiting.get("reason", "Waiting")
                     msg = waiting.get("message", "")
+                    recent_logs = ""
+                    if any(k in reason.lower() for k in ["crash", "error", "backoff"]):
+                        recent_logs = fetch_pod_logs(pod_name, tail_lines=20)
                     pod_issues.append({
                         "pod": pod_name,
                         "container": cs.get("name"),
                         "issue_type": reason,
-                        "message": msg
+                        "message": msg,
+                        "recent_logs": recent_logs
                     })
                     has_issue = True
                 elif terminated and terminated.get("exitCode", 0) != 0:
+                    recent_logs = fetch_pod_logs(pod_name, tail_lines=20)
                     pod_issues.append({
                         "pod": pod_name,
                         "container": cs.get("name"),
                         "issue_type": f"Terminated (ExitCode {terminated.get('exitCode')})",
-                        "message": terminated.get("reason", "")
+                        "message": terminated.get("reason", ""),
+                        "recent_logs": recent_logs
                     })
                     has_issue = True
 
@@ -254,10 +287,41 @@ Please provide:
             "is_fallback": False
         }
 
-    # High-quality offline diagnostic fallback if no API key or network error
-    image_pull_issues = [p for p in pod_issues if p.get("issue_type") in ["ImagePullBackOff", "ErrImagePull"]]
-    
-    if image_pull_issues:
+    crash_loop_issues = [p for p in pod_issues if any(k in p.get("issue_type", "").lower() for k in ["crash", "backoff", "terminated"])]
+    image_pull_issues = [p for p in pod_issues if any(k in p.get("issue_type", "").lower() for k in ["image", "errimage", "pull"])]
+
+    if crash_loop_issues:
+        first_issue = crash_loop_issues[0]
+        pod_name = first_issue.get("pod", "pod")
+        logs_sample = first_issue.get("recent_logs", "")
+        svc_name = first_issue.get("container") or pod_name.split("-")[0]
+        if not svc_name.endswith("-service") and svc_name != "gateway":
+            svc_name = pod_name.split("-")[0] + "-service"
+
+        log_display = f"\n\n**Recent Logs from `{pod_name}`:**\n```\n{logs_sample}\n```" if logs_sample else "\n*(No startup logs output before container exited)*"
+
+        root_cause_section = f"""⚠️ **Process Crash / CrashLoopBackOff Detected on `{pod_name}`:**
+The container exited repeatedly with status `{first_issue.get('issue_type')}`.{log_display}
+
+**Primary Root Cause:**
+The pod process exited with an error or fatal exception immediately upon starting (e.g. fatal command override, unhandled exception, syntax error, or unhandled rejection).
+A simple pod restart will **not** fix this issue because the underlying configuration/command remains broken.
+
+**Prescribed Remediation Actions:**
+1. **Rollback Deployment Revision:** Revert to the previous healthy deployment revision:
+```bash
+oc rollout undo deployment/{svc_name} -n {NAMESPACE}
+```
+2. **Revert Faulty Command Overrides:**
+```bash
+# If patched with an invalid command, remove the container command override:
+oc patch deployment {svc_name} -n {NAMESPACE} --type=json -p='[{{"op": "remove", "path": "/spec/template/spec/containers/0/command"}}]'
+```
+3. **Verify Container Logs:**
+```bash
+oc logs deployment/{svc_name} -n {NAMESPACE} --tail=50
+```"""
+    elif image_pull_issues:
         root_cause_section = f"""⚠️ **Image Pull Failure Detected on {len(image_pull_issues)} Pods:**
 Pods are stuck in `ImagePullBackOff` or `ErrImagePull`.
 **Primary Root Cause:** Expired AWS ECR authorization credentials (AWS ECR tokens expire every 12 hours) or invalid repository image tags.

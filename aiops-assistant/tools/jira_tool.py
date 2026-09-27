@@ -274,6 +274,34 @@ def list_open_jira_tickets(limit: int = 15) -> List[Dict[str, Any]]:
         return []
 
 
+def get_active_jira_incident_for_service(service_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Find an existing open/unresolved Jira incident for the given service.
+    Enforces idempotency to prevent duplicate tickets when clicking SRE diagnostics repeatedly.
+    """
+    try:
+        open_tickets = list_open_jira_tickets(limit=25)
+        svc_clean = service_name.lower().replace("-service", "")
+        for t in open_tickets:
+            status = t.get("status", "").lower()
+            if status in ["done", "resolved", "closed", "completed"]:
+                continue
+            summary = t.get("summary", "").lower()
+            labels = [str(lbl).lower() for lbl in t.get("labels", [])]
+            if (
+                service_name.lower() in labels
+                or svc_clean in labels
+                or f"[{service_name.lower()}]" in summary
+                or f"on {service_name.lower()}" in summary
+                or f"on {svc_clean}" in summary
+                or service_name.lower() in summary
+            ):
+                return t
+    except Exception:
+        pass
+    return None
+
+
 def transition_jira_issue(issue_key: str, target_state_keyword: str) -> Dict[str, Any]:
     """
     Transition a Jira ticket towards a target state keyword 
