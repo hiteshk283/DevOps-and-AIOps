@@ -5,7 +5,7 @@ This document provides a comprehensive, step-by-step record of **every command e
 ---
 
 ## Table of Contents
-1. [Quick Reference: Essential URLs & Endpoints](#1-quick-reference-essential-urls--endpoints)
+1. [Quick Reference: Essential URLs and Endpoints](#1-quick-reference-essential-urls--endpoints)
 2. [Git, GitHub Push Protection Resolution (GH013) & Remote Sync](#2-git-github-push-protection-resolution-gh013--remote-sync)
 3. [GitHub Actions Secrets Provisioning via PyNaCl (Libsodium SealedBox)](#3-github-actions-secrets-provisioning-via-pynacl-libsodium-sealedbox)
 4. [Autonomous GitHub Pull Request #4 Lifecycle (AI Review, Jira & Auto-Merge)](#4-autonomous-github-pull-request-4-lifecycle-ai-review-jira--auto-merge)
