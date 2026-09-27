@@ -52,6 +52,10 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
   const [draftPolicy, setDraftPolicy] = useState<any | null>(null);
   const [publishing, setPublishing] = useState<boolean>(false);
 
+  // SRE Radar State
+  const [sreDiagnosis, setSreDiagnosis] = useState<string | null>(null);
+  const [runningSreDiag, setRunningSreDiag] = useState<boolean>(false);
+
   useEffect(() => {
     loadSwarmData();
     loadJiraTickets();
@@ -134,6 +138,59 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
     } catch {
       showToast(`Approved ${proposalId} (local simulated execution)`);
       setProposals(prev => prev.filter(p => p.id !== proposalId));
+    }
+  };
+
+  const handleRunSreDiagnostics = async () => {
+    setRunningSreDiag(true);
+    setSreDiagnosis(null);
+    try {
+      const res = await api.chatWithAgentSwarm("Kira, run complete cluster root cause analysis and metric correlation");
+      setSreDiagnosis(res.reply);
+      const agentMsg: AgentChatMessage = {
+        id: `agent-${Date.now()}`,
+        sender: 'agent',
+        agentBadge: res.agent_badge || '🔍 KIRA SRE',
+        agentName: res.active_agent || 'Kira (SRE Diagnostics)',
+        text: res.reply || 'Analysis completed.',
+        timestamp: new Date().toLocaleTimeString(),
+        delegationTrace: res.delegation_trace,
+        proposal: res.proposal
+      };
+      setMessages(prev => [...prev, agentMsg]);
+      showToast('🔍 Kira SRE diagnosis completed! Report displayed below.');
+    } catch {
+      showToast('⚠️ Could not complete SRE diagnostics.');
+    } finally {
+      setRunningSreDiag(false);
+      loadSwarmData();
+    }
+  };
+
+  const handleProposeRestart = async () => {
+    setRunningSreDiag(true);
+    try {
+      const res = await api.chatWithAgentSwarm("Operator, propose a rolling restart of claim-service deployment in OpenShift");
+      if (res.proposal) {
+        setProposals(prev => [res.proposal, ...prev]);
+      }
+      const agentMsg: AgentChatMessage = {
+        id: `agent-${Date.now()}`,
+        sender: 'agent',
+        agentBadge: res.agent_badge || '🛠️ OPERATOR',
+        agentName: res.active_agent || 'Remediation Operator',
+        text: res.reply || 'Proposal formulated.',
+        timestamp: new Date().toLocaleTimeString(),
+        delegationTrace: res.delegation_trace,
+        proposal: res.proposal
+      };
+      setMessages(prev => [...prev, agentMsg]);
+      setActiveTab('governance');
+      showToast('🛠️ Remediation proposal formulated! Staged in Governance Inbox.');
+    } catch {
+      showToast('⚠️ Could not formulate proposal.');
+    } finally {
+      setRunningSreDiag(false);
     }
   };
 
@@ -509,13 +566,15 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '8px', border: '1px solid #1e293b' }}>
               <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>OpenShift Cluster</span>
               <h3 style={{ margin: '0.3rem 0', color: '#38bdf8' }}>kumarh5149-dev</h3>
-              <span style={{ color: '#10b981', fontSize: '0.75rem' }}>● Ingress Edge TLS Active</span>
+              <span style={{ color: '#10b981', fontSize: '0.75rem' }}>
+                ● Total Pods: {telemetry?.cluster_pod_status?.total_pods || 17} | Issues: {telemetry?.cluster_pod_status?.unhealthy_pods_count || 0}
+              </span>
             </div>
 
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '8px', border: '1px solid #1e293b' }}>
-              <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Prometheus Telemetry</span>
-              <h3 style={{ margin: '0.3rem 0', color: '#38bdf8' }}>Port 9090</h3>
-              <span style={{ color: '#10b981', fontSize: '0.75rem' }}>● HTTP QPS & Error Scrapers Active</span>
+              <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Telemetry Radar</span>
+              <h3 style={{ margin: '0.3rem 0', color: '#38bdf8' }}>Cluster Probes</h3>
+              <span style={{ color: '#10b981', fontSize: '0.75rem' }}>● In-Cluster HTTP & DNS Active</span>
             </div>
 
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '8px', border: '1px solid #1e293b' }}>
@@ -525,32 +584,90 @@ export const AIOpsConsole: React.FC<AIOpsConsoleProps> = ({ showToast, onNavigat
             </div>
           </div>
 
-          <h4 style={{ color: '#cbd5e1', marginBottom: '0.6rem' }}>Live Microservice Health Probes:</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.8rem', marginBottom: '1.2rem' }}>
-            {['gateway', 'auth', 'policy-service', 'claim-service', 'member-service', 'billing-service', 'hospital-service', 'document-service', 'support-service'].map(svc => (
-              <div key={svc} style={{ background: '#0f172a', borderLeft: '4px solid #10b981', padding: '0.7rem 1rem', borderRadius: '6px' }}>
-                <strong style={{ color: '#f8fafc' }}>{svc}</strong>
-                <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                  Status: <span style={{ color: '#10b981' }}>HEALTHY (HTTP 200)</span> • ~16ms
-                </div>
-              </div>
-            ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+            <h4 style={{ color: '#cbd5e1', margin: 0 }}>Live Microservice Health Probes:</h4>
+            <button
+              onClick={loadSwarmData}
+              style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', borderRadius: '4px', padding: '0.25rem 0.6rem', fontSize: '0.75rem', cursor: 'pointer' }}
+            >
+              🔄 Refresh Probes
+            </button>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.8rem' }}>
+          {/* Dynamic Grid of Services */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.8rem', marginBottom: '1.2rem' }}>
+            {Object.entries(telemetry?.service_health_probes || {
+              gateway: { status: 'HEALTHY', latency_ms: 7 },
+              auth: { status: 'HEALTHY', latency_ms: 5 },
+              'policy-service': { status: 'HEALTHY', latency_ms: 11 },
+              'claim-service': { status: 'HEALTHY', latency_ms: 4 },
+              'member-service': { status: 'HEALTHY', latency_ms: 3 },
+              'billing-service': { status: 'HEALTHY', latency_ms: 4 },
+              'hospital-service': { status: 'HEALTHY', latency_ms: 88 },
+              'document-service': { status: 'HEALTHY', latency_ms: 5 },
+              'support-service': { status: 'HEALTHY', latency_ms: 5 }
+            }).map(([svc, probe]: [string, any]) => {
+              const isHealthy = probe.status === 'HEALTHY';
+              return (
+                <div key={svc} style={{ background: '#0f172a', borderLeft: `4px solid ${isHealthy ? '#10b981' : '#ef4444'}`, padding: '0.7rem 1rem', borderRadius: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong style={{ color: '#f8fafc' }}>{svc}</strong>
+                    <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: isHealthy ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.2)', color: isHealthy ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                      {isHealthy ? 'ONLINE' : 'DOWN'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                    Status: <span style={{ color: isHealthy ? '#10b981' : '#ef4444', fontWeight: 600 }}>{probe.status}</span>
+                    {isHealthy && <span> • ~{probe.latency_ms || 10}ms</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
             <button 
-              onClick={() => handleSendMessage("Kira, run complete cluster root cause analysis and metric correlation")}
-              style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+              onClick={handleRunSreDiagnostics}
+              disabled={runningSreDiag}
+              style={{ background: runningSreDiag ? '#0369a1' : '#0284c7', color: '#fff', border: 'none', padding: '0.65rem 1.4rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
-              🔍 Run Kira SRE Diagnostics
+              {runningSreDiag ? '⚡ Running Kira SRE Diagnostics...' : '🔍 Run Kira SRE Diagnostics'}
             </button>
             <button 
-              onClick={() => handleSendMessage("Operator, propose a rolling restart of claim-service deployment in OpenShift")}
-              style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+              onClick={handleProposeRestart}
+              disabled={runningSreDiag}
+              style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', padding: '0.65rem 1.4rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
             >
               🛠️ Propose Safe Rolling Restart
             </button>
+            <button
+              onClick={() => setActiveTab('chat')}
+              style={{ background: 'transparent', color: '#94a3b8', border: '1px solid #334155', padding: '0.65rem 1rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' }}
+            >
+              💬 Open Swarm Chat
+            </button>
           </div>
+
+          {/* Live In-Tab Diagnostic Report */}
+          {sreDiagnosis && (
+            <div style={{ marginTop: '1.5rem', background: '#0b1120', border: '1px solid #38bdf8', borderRadius: '8px', padding: '1.2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', borderBottom: '1px solid #1e293b', paddingBottom: '0.6rem' }}>
+                <strong style={{ color: '#38bdf8', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span>🛡️</span> KIRA SRE LIVE CLUSTER DIAGNOSTIC & RCA REPORT
+                </strong>
+                <button 
+                  onClick={() => setSreDiagnosis(null)}
+                  style={{ background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', borderRadius: '4px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontSize: '0.75rem' }}
+                >
+                  ✕ Close Report
+                </button>
+              </div>
+              <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.6', maxHeight: '420px', overflowY: 'auto', background: '#070b14', padding: '1rem', borderRadius: '6px' }}>
+                {sreDiagnosis}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
