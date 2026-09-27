@@ -40,19 +40,20 @@ def route_and_execute(user_query: str, api_key: str = None, jira_issue_key: Opti
     """Classify intent and dispatch query to the appropriate agent."""
     query_lower = user_query.lower()
 
+    import re
     # 1. Routing heuristics (fast classification)
     if any(w in query_lower for w in ["kafka", "topic"]) and any(w in query_lower for w in ["onboard", "create", "provision", "add", "new topic", "make topic"]):
         target = "KAFKA_OPS"
     elif any(w in query_lower for w in ["jira", "ticket", "tickets", "jsm"]):
         target = "JIRA_OPS"
-    elif any(w in query_lower for w in ["restart", "scale", "rollback", "remediate", "fix pod", "heal"]):
+    elif any(w in query_lower for w in ["restart", "scale", "rollback", "remediate", "fix pod", "auto-heal"]) or re.search(r"\b(heal|heals)\b", query_lower):
         target = "OPERATOR"
-    elif any(w in query_lower for w in ["innovat", "growth", "new policy", "acquisition", "consumer", "freelancer", "market", "competitor", "rider"]):
-        target = "NEXUS"
-    elif any(w in query_lower for w in ["claim", "fraud", "pre-auth", "adjudicat", "hospital bill", "stent", "appendectomy"]):
+    elif any(w in query_lower for w in ["fraud", "pre-auth", "adjudicat", "hospital bill", "stent", "appendectomy"]) or ("claim" in query_lower and "claim-service" not in query_lower):
         target = "ADJUDICATOR"
-    elif any(w in query_lower for w in ["503", "500", "error", "latency", "prometheus", "pod", "crash", "health", "sre", "status", "down", "slow"]):
+    elif any(w in query_lower for w in ["error", "latency", "prometheus", "pod", "crash", "sre", "diagnos", "down", "slow", "kira"]) or re.search(r"\b(500|502|503|504)\b", query_lower):
         target = "KIRA"
+    elif any(w in query_lower for w in ["innovat", "growth", "policy", "acquisition", "consumer", "freelancer", "market", "competitor", "rider", "nexus"]):
+        target = "NEXUS"
     else:
         # Ask Gemini Flash to classify if ambiguous
         classification_prompt = f"""Classify the user intent into exactly one of: [KIRA, OPERATOR, NEXUS, ADJUDICATOR, APEX, JIRA_OPS]

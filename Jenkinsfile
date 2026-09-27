@@ -83,25 +83,23 @@ pipeline {
 
         stage('5. Verify Rollout Health') {
             steps {
-                echo "Triggering rolling update across microservices to fetch latest ECR image layers..."
+                echo "Verifying microservice rollout health and pod readiness..."
                 sh '''
-                    oc rollout restart deployment/gateway \
-                        deployment/frontend \
-                        deployment/auth \
-                        deployment/policy-service \
-                        deployment/claim-service \
-                        deployment/member-service \
-                        deployment/hospital-service \
-                        deployment/billing-service \
-                        deployment/document-service \
-                        deployment/support-service \
-                        deployment/aiops-assistant \
-                        -n ${NAMESPACE}
-
-                    echo "Awaiting rolling updates..."
+                    echo "Checking Gateway..."
                     oc rollout status deployment/gateway -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Frontend..."
                     oc rollout status deployment/frontend -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Auth Service..."
                     oc rollout status deployment/auth -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Policy Service..."
+                    oc rollout status deployment/policy-service -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Claim Service..."
+                    oc rollout status deployment/claim-service -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Billing Service..."
+                    oc rollout status deployment/billing-service -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking Support Service..."
+                    oc rollout status deployment/support-service -n ${NAMESPACE} --timeout=120s || true
+                    echo "Checking AIOps Assistant..."
                     oc rollout status deployment/aiops-assistant -n ${NAMESPACE} --timeout=120s || true
                 '''
             }

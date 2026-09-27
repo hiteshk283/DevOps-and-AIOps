@@ -62,6 +62,80 @@ def create_remediation_proposal(
     return proposal
 
 
+def execute_k8s_api_action(command: str) -> Optional[Dict[str, Any]]:
+    """Execute action directly against Kubernetes API if oc/kubectl binary not available."""
+    token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    if not os.path.exists(token_path):
+        return None
+
+    import ssl, json, re, urllib.request
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    token = open(token_path).read().strip()
+
+    # Pattern 1: rollout restart deployment/<name>
+    m_restart = re.search(r"rollout\s+restart\s+deployment/([a-zA-Z0-9_\.-]+)", command)
+    if m_restart:
+        dep_name = m_restart.group(1)
+        url = f"https://kubernetes.default.svc/apis/apps/v1/namespaces/{NAMESPACE}/deployments/{dep_name}"
+        patch = json.dumps({
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "remediation.aiops/restartedAt": datetime.utcnow().isoformat() + "Z"
+                        }
+                    }
+                }
+            }
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=patch,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/strategic-merge-patch+json"
+            },
+            method="PATCH"
+        )
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
+                return {
+                    "success": True,
+                    "output": f"✅ Rollout restart triggered for deployment/{dep_name} via in-cluster Kubernetes API (HTTP {r.getcode()})."
+                }
+        except Exception as e:
+            return {"success": False, "output": f"Kubernetes API restart failed for {dep_name}: {e}"}
+
+    # Pattern 2: scale deployment/<name> --replicas=<n>
+    m_scale = re.search(r"scale\s+deployment/([a-zA-Z0-9_\.-]+)\s+--replicas=(\d+)", command)
+    if m_scale:
+        dep_name = m_scale.group(1)
+        replicas = int(m_scale.group(2))
+        url = f"https://kubernetes.default.svc/apis/apps/v1/namespaces/{NAMESPACE}/deployments/{dep_name}"
+        patch = json.dumps({"spec": {"replicas": replicas}}).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=patch,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/strategic-merge-patch+json"
+            },
+            method="PATCH"
+        )
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
+                return {
+                    "success": True,
+                    "output": f"✅ Deployment {dep_name} scaled to {replicas} replicas via in-cluster Kubernetes API (HTTP {r.getcode()})."
+                }
+        except Exception as e:
+            return {"success": False, "output": f"Kubernetes API scaling failed for {dep_name}: {e}"}
+
+    return None
+
+
 def execute_action(command: str) -> Dict[str, Any]:
     """Execute a remediation command safely with fallback simulation."""
     # Safety filter: ensure command only touches known safe actions
@@ -94,12 +168,18 @@ def execute_action(command: str) -> Dict[str, Any]:
         if res.returncode == 0:
             return {"success": True, "output": res.stdout.strip() or "Command completed successfully."}
         else:
+            # If CLI failed because oc/kubectl is not installed (code 127) or failed, try k8s API
+            k8s_api_res = execute_k8s_api_action(command)
+            if k8s_api_res:
+                return k8s_api_res
             return {
                 "success": False,
                 "output": f"Execution returned non-zero code {res.returncode}: {res.stderr.strip() or res.stdout.strip()}"
             }
     except Exception as e:
-        # In sandbox or container where oc CLI is simulated:
+        k8s_api_res = execute_k8s_api_action(command)
+        if k8s_api_res:
+            return k8s_api_res
         return {
             "success": True,
             "output": f"[Simulated Execution] Applied remediation: '{command}' successfully in namespace '{NAMESPACE}'."
