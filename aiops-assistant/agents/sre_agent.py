@@ -59,45 +59,95 @@ def query_prometheus(query: str) -> List[Dict[str, Any]]:
 
 def check_all_services_health() -> Dict[str, Any]:
     """Inspect availability and latency of all microservices."""
+    in_k8s = os.path.exists("/var/run/secrets/kubernetes.io/serviceaccount/token")
+    
     services = {
-        "gateway": f"{GATEWAY_URL}/health",
-        "auth": "http://localhost:3002/health",
-        "policy-service": "http://localhost:3003/health",
-        "claim-service": "http://localhost:3004/health",
-        "member-service": "http://localhost:3005/health",
-        "billing-service": "http://localhost:3006/health",
-        "hospital-service": "http://localhost:3008/health",
-        "document-service": "http://localhost:3009/health",
-        "support-service": "http://localhost:3010/health"
+        "gateway": {"host": "gateway" if in_k8s else "localhost", "port": 3001, "paths": ["/health", "/api/status"]},
+        "auth": {"host": "auth" if in_k8s else "localhost", "port": 3002, "paths": ["/health", "/metrics"]},
+        "policy-service": {"host": "policy-service" if in_k8s else "localhost", "port": 3003, "paths": ["/health", "/metrics"]},
+        "claim-service": {"host": "claim-service" if in_k8s else "localhost", "port": 3004, "paths": ["/health", "/metrics"]},
+        "member-service": {"host": "member-service" if in_k8s else "localhost", "port": 3005, "paths": ["/health", "/metrics"]},
+        "billing-service": {"host": "billing-service" if in_k8s else "localhost", "port": 3006, "paths": ["/health", "/metrics"]},
+        "hospital-service": {"host": "hospital-service" if in_k8s else "localhost", "port": 3008, "paths": ["/health", "/metrics", "/"]},
+        "document-service": {"host": "document-service" if in_k8s else "localhost", "port": 3009, "paths": ["/health", "/metrics"]},
+        "support-service": {"host": "support-service" if in_k8s else "localhost", "port": 3010, "paths": ["/health", "/metrics"]}
     }
 
     report = {}
-    for name, url in services.items():
-        start = datetime.utcnow()
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Kira-Health-Check"})
-            with urllib.request.urlopen(req, timeout=2) as resp:
-                latency_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
-                report[name] = {"status": "HEALTHY", "http_code": resp.getcode(), "latency_ms": latency_ms}
-        except Exception as e:
-            report[name] = {"status": "UNHEALTHY / TIMEOUT", "target": url, "error": str(e)}
+    for name, cfg in services.items():
+        host = cfg["host"]
+        port = cfg["port"]
+        success = False
+        last_error = None
+        for path in cfg["paths"]:
+            url = f"http://{host}:{port}{path}"
+            start = datetime.utcnow()
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Kira-Health-Check"})
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    latency_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
+                    report[name] = {"status": "HEALTHY", "http_code": resp.getcode(), "latency_ms": latency_ms, "target": url}
+                    success = True
+                    break
+            except Exception as e:
+                last_error = str(e)
+        if not success:
+            report[name] = {"status": "UNHEALTHY / TIMEOUT", "target": f"http://{host}:{port}", "error": last_error}
 
     return report
 
 
 def get_k8s_cluster_pod_status() -> Dict[str, Any]:
     """Inspect live OpenShift / Kubernetes pod states and warning events."""
+    data = None
+    warning_events = []
+
+    # 1. Try oc / kubectl CLI first if available
     try:
         cmd = f"oc get pods -n {NAMESPACE} -o json"
         res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8)
-        if res.returncode != 0:
+        if res.returncode == 0:
+            data = json.loads(res.stdout)
+        else:
             cmd = f"kubectl get pods -n {NAMESPACE} -o json"
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8)
-        
-        if res.returncode != 0:
-            return {"available": False, "error": res.stderr.strip()}
-        
-        data = json.loads(res.stdout)
+            if res.returncode == 0:
+                data = json.loads(res.stdout)
+    except Exception:
+        pass
+
+    # 2. Try In-Cluster Kubernetes Service Account API
+    token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    if not data and os.path.exists(token_path):
+        try:
+            import ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            token = open(token_path).read().strip()
+
+            url = f"https://kubernetes.default.svc/api/v1/namespaces/{NAMESPACE}/pods"
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            ev_url = f"https://kubernetes.default.svc/api/v1/namespaces/{NAMESPACE}/events?fieldSelector=type=Warning"
+            ev_req = urllib.request.Request(ev_url, headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(ev_req, context=ctx, timeout=5) as ev_resp:
+                ev_data = json.loads(ev_resp.read().decode("utf-8"))
+                for item in ev_data.get("items", [])[-8:]:
+                    reason = item.get("reason", "Warning")
+                    msg = item.get("message", "")
+                    obj = item.get("involvedObject", {}).get("name", "")
+                    warning_events.append(f"{reason} on {obj}: {msg}")
+        except Exception as e:
+            if not data:
+                return {"available": False, "error": f"K8s API query failed: {e}"}
+
+    if not data:
+        return {"available": False, "error": "Neither oc/kubectl CLI nor in-cluster k8s API reachable"}
+
+    try:
         pod_issues = []
         pod_summary = []
         for item in data.get("items", []):
@@ -137,17 +187,17 @@ def get_k8s_cluster_pod_status() -> Dict[str, Any]:
                 "has_issue": has_issue
             })
 
-        # Fetch recent warning events
-        ev_cmd = f"oc get events -n {NAMESPACE} --field-selector type=Warning --sort-by='.metadata.creationTimestamp' --no-headers | tail -n 8"
-        ev_res = subprocess.run(ev_cmd, shell=True, capture_output=True, text=True, timeout=8)
-        events = [line.strip() for line in ev_res.stdout.strip().splitlines() if line.strip()] if ev_res.returncode == 0 else []
+        if not warning_events:
+            ev_cmd = f"oc get events -n {NAMESPACE} --field-selector type=Warning --sort-by='.metadata.creationTimestamp' --no-headers | tail -n 8"
+            ev_res = subprocess.run(ev_cmd, shell=True, capture_output=True, text=True, timeout=8)
+            warning_events = [line.strip() for line in ev_res.stdout.strip().splitlines() if line.strip()] if ev_res.returncode == 0 else []
 
         return {
             "available": True,
             "total_pods": len(pod_summary),
             "unhealthy_pods_count": len([p for p in pod_summary if p["has_issue"] or p["ready"] < p["total"]]),
             "pod_issues": pod_issues,
-            "recent_warning_events": events
+            "recent_warning_events": warning_events
         }
     except Exception as e:
         return {"available": False, "error": str(e)}
