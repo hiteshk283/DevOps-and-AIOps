@@ -385,11 +385,32 @@ Latency and error rates are well within SLO thresholds (P95 < 250ms, 0% 5xx erro
 3. Verify PostgreSQL connection pooling parameters in `10-create-databases.sh` to prevent thread starvation under concurrent loads.
 """
 
+    jira_incident = None
+    if unhealthy or pod_issues:
+        target_service = unhealthy[0] if unhealthy else pod_issues[0].get("pod", "cluster")
+        try:
+            from tools.jira_tool import create_jira_incident, add_jira_comment
+            j_res = create_jira_incident(
+                summary=f"Outage detected on {target_service} in {NAMESPACE}",
+                description=f"Kira SRE autonomous health probe detected failure on {target_service}.\nError: {telemetry.get('service_health_probes', {}).get(target_service, {}).get('error', 'Service probe timeout')}",
+                service_name=target_service,
+                priority="High"
+            )
+            if j_res.get("success"):
+                jira_incident = j_res
+                try:
+                    add_jira_comment(j_res["key"], f"🔍 Kira SRE Incident Analysis for {target_service}:\n" + fallback_analysis[:2000])
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     return {
         "agent": "Kira (SRE Diagnostics)",
         "analysis": fallback_analysis,
         "telemetry": telemetry,
         "unhealthy_services": unhealthy,
         "pod_issues": pod_issues,
+        "jira_ticket": jira_incident,
         "is_fallback": True
     }
