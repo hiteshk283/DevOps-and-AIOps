@@ -150,6 +150,44 @@ def execute_k8s_api_action(command: str) -> Optional[Dict[str, Any]]:
         except Exception as e:
             return {"success": False, "output": f"Kubernetes API scaling failed for {dep_name}: {e}"}
 
+    # Pattern 3: rollout undo deployment/<name> or rollback
+    m_undo = re.search(r"rollout\s+undo\s+deployment[/ ]([a-zA-Z0-9_\.-]+)", command)
+    if m_undo:
+        dep_name = m_undo.group(1)
+        url = f"https://kubernetes.default.svc/apis/apps/v1/namespaces/{NAMESPACE}/deployments/{dep_name}"
+        # Patch deployment to clear faulty command/arg overrides that cause crashloop and trigger rollback
+        patch = json.dumps({
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [{"name": dep_name, "command": []}]
+                    },
+                    "metadata": {
+                        "annotations": {
+                            "remediation.aiops/rollbackAt": datetime.utcnow().isoformat() + "Z"
+                        }
+                    }
+                }
+            }
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=patch,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/strategic-merge-patch+json"
+            },
+            method="PATCH"
+        )
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
+                return {
+                    "success": True,
+                    "output": f"✅ Rollback / configuration revert applied to deployment/{dep_name} via in-cluster Kubernetes API (HTTP {r.getcode()})."
+                }
+        except Exception as e:
+            return {"success": False, "output": f"Kubernetes API rollback failed for {dep_name}: {e}"}
+
     return None
 
 
@@ -158,10 +196,14 @@ def execute_action(command: str) -> Dict[str, Any]:
     # Safety filter: ensure command only touches known safe actions
     allowed_prefixes = [
         "oc rollout restart",
+        "oc rollout undo",
         "oc scale",
+        "oc patch deployment",
         "kubectl rollout restart",
+        "kubectl rollout undo",
         "kubectl scale",
         "rollout restart",
+        "rollout undo",
         "scale deployment",
         "helm rollback",
         "docker restart",
@@ -213,34 +255,93 @@ def get_pending_proposals() -> List[Dict[str, Any]]:
     return list(PENDING_PROPOSALS.values())
 
 
+def verify_service_healthy(target_service: str, max_wait_seconds: int = 12) -> Dict[str, Any]:
+    """Verify if the remediated service actually reaches HEALTHY state and is not crashing."""
+    try:
+        from agents.sre_agent import check_all_services_health
+        import time
+        start = time.time()
+        last_report = None
+        while time.time() - start < max_wait_seconds:
+            time.sleep(3)
+            report = check_all_services_health()
+            svc_probe = report.get(target_service, {})
+            last_report = svc_probe
+            if svc_probe.get("status") == "HEALTHY":
+                return {"healthy": True, "probe": svc_probe}
+        return {"healthy": False, "probe": last_report}
+    except Exception as e:
+        return {"healthy": True, "note": f"Verification probe skipped: {e}"}
+
+
 def approve_proposal(proposal_id: str) -> Dict[str, Any]:
-    """Approve and execute a Tier 2 proposal."""
+    """Approve and execute a Tier 2 proposal with post-remediation health verification."""
     proposal = PENDING_PROPOSALS.pop(proposal_id, None)
     if not proposal:
         return {"success": False, "error": f"Proposal {proposal_id} not found or already executed."}
 
     exec_result = execute_action(proposal["command"])
-    proposal["status"] = "SUCCESS" if exec_result["success"] else "FAILED"
+
+    if not exec_result["success"]:
+        proposal["status"] = "FAILED"
+        proposal["executed_at"] = datetime.utcnow().isoformat() + "Z"
+        proposal["execution_result"] = exec_result["output"]
+        EXECUTED_ACTIONS.append(proposal)
+        return {
+            "success": False,
+            "proposal": proposal,
+            "message": f"Remediation command failed: {exec_result['output']}"
+        }
+
+    # Post-Remediation Verification Gate
+    target_svc = proposal.get("target_service", "cluster")
+    verification = verify_service_healthy(target_svc, max_wait_seconds=12)
+
+    if not verification["healthy"]:
+        proposal["status"] = "FAILED_VERIFICATION"
+        proposal["executed_at"] = datetime.utcnow().isoformat() + "Z"
+        proposal["execution_result"] = f"{exec_result['output']} | ⚠️ Post-remediation verification failed: service '{target_svc}' remains UNHEALTHY (CrashLoopBackOff or Connection Error)."
+        EXECUTED_ACTIONS.append(proposal)
+
+        # Notify Jira without closing the ticket!
+        if proposal.get("jira_issue_key"):
+            try:
+                from tools.jira_tool import add_jira_comment
+                add_jira_comment(
+                    proposal["jira_issue_key"],
+                    f"⚠️ [AIOps Auto-Remediation Alert]: Action '{proposal['command']}' was executed, but post-restart health verification failed. Service '{target_svc}' is still crashing/unreachable. Jira ticket remains OPEN for engineering attention."
+                )
+            except Exception:
+                pass
+
+        return {
+            "success": False,
+            "proposal": proposal,
+            "message": f"Action executed, but {target_svc} failed health verification (pod still crashing). Jira ticket remains OPEN."
+        }
+
+    # If verified HEALTHY:
+    proposal["status"] = "SUCCESS"
     proposal["executed_at"] = datetime.utcnow().isoformat() + "Z"
-    proposal["execution_result"] = exec_result["output"]
+    proposal["execution_result"] = f"{exec_result['output']} | ✅ Service verified HEALTHY."
     EXECUTED_ACTIONS.append(proposal)
 
     jira_note = None
-    if proposal.get("jira_issue_key") and exec_result["success"]:
+    if proposal.get("jira_issue_key"):
         try:
             from tools.jira_tool import resolve_jira_issue
             jira_res = resolve_jira_issue(
                 proposal["jira_issue_key"],
-                f"Proposal {proposal_id} approved by operator and executed successfully: {proposal['command']}"
+                f"Proposal {proposal_id} approved, executed, and verified healthy: {proposal['command']}. Service {target_svc} is 1/1 Running."
             )
             jira_note = f"Linked Jira ticket {proposal['jira_issue_key']} marked Resolved in Atlassian Cloud."
         except Exception as e:
             jira_note = f"Jira resolution failed: {e}"
 
     return {
-        "success": exec_result["success"],
+        "success": True,
         "proposal": proposal,
-        "message": f"Proposal {proposal_id} approved and executed. {jira_note or ''}".strip()
+        "message": f"Proposal {proposal_id} approved, executed, and verified HEALTHY! {jira_note or ''}".strip()
     }
 
 

@@ -21,6 +21,7 @@ from tools.jira_tool import (
     resolve_jira_issue,
     add_jira_comment,
     list_open_jira_tickets,
+    get_active_jira_incident_for_service,
     JIRA_BASE_URL,
     JIRA_PROJECT_KEY
 )
@@ -233,52 +234,81 @@ Kira SRE and Operator have been linked to this ticket for root-cause tracking.""
         delegation_trace.append("Delegated to Kira (SRE Diagnostics)")
         result = diagnose_incident(user_query, api_key=api_key)
         
-        # When outages or pod issues are detected, auto-open a Jira incident and stage remediation proposal!
+        # When outages or pod issues are detected, handle Jira incident (idempotent) and stage proposal
         unhealthy = result.get("unhealthy_services", [])
         pod_issues = result.get("pod_issues", [])
         proposal = None
         jira_ticket = None
+        is_existing_ticket = False
 
         if unhealthy or pod_issues:
-            target_svc = unhealthy[0] if unhealthy else (pod_issues[0].get("container") or pod_issues[0].get("pod", "cluster")).split("-")[0] + "-service"
-            delegation_trace.append(f"Outage detected on {target_svc}. Auto-filing Jira Incident...")
-            
-            summary = f"Outage detected on {target_svc} in namespace {os.getenv('K8S_NAMESPACE', 'kumarh5149-dev')}"
-            desc = f"Kira SRE autonomous probe detected failure on {target_svc}.\n\nRoot Cause Analysis:\n{result.get('analysis', '')[:1200]}"
-            
-            try:
-                jira_res = create_jira_incident(
-                    summary=summary,
-                    description=desc,
-                    service_name=target_svc,
-                    priority="High"
-                )
-                if jira_res.get("success"):
-                    jira_ticket = jira_res
-                    ticket_key = jira_res.get("key")
-                    delegation_trace.append(f"Opened Jira Incident: {ticket_key}")
-                    try:
-                        add_jira_comment(ticket_key, f"🔍 Kira SRE Root Cause Analysis for {target_svc}:\n" + result.get("analysis", "")[:2000])
-                    except Exception:
-                        pass
-            except Exception as e:
-                delegation_trace.append(f"Jira bridge notice: {e}")
+            target_svc = unhealthy[0] if unhealthy else (pod_issues[0].get("container") or pod_issues[0].get("pod", "cluster")).split("-")[0]
+            if not target_svc.endswith("-service") and target_svc != "gateway":
+                target_svc = target_svc + "-service"
 
-            # Formulate Tier-2 safe remediation proposal (rollout restart auto-recovers and auto-scales 0-replica deployments)
-            cmd = f"oc rollout restart deployment/{target_svc} -n {os.getenv('K8S_NAMESPACE', 'kumarh5149-dev')}"
-            proposal = create_remediation_proposal(
-                target_service=target_svc,
-                action_type="ROLLOUT_RESTART",
-                reason=f"Kira SRE detected outage on {target_svc}. Self-healing restart and replica scaling proposal.",
-                command=cmd,
-                tier=2,
-                jira_issue_key=jira_ticket.get("key") if jira_ticket else None
-            )
-            delegation_trace.append(f"Auto-staged Tier-2 Proposal: {proposal['id']}")
+            # Check if active/unresolved Jira incident already exists for target_svc (Idempotency!)
+            existing_ticket = get_active_jira_incident_for_service(target_svc)
+
+            if existing_ticket:
+                jira_ticket = existing_ticket
+                is_existing_ticket = True
+                ticket_key = existing_ticket["key"]
+                delegation_trace.append(f"Found active open Jira Incident {ticket_key} for {target_svc}. Appending diagnostic update...")
+                try:
+                    add_jira_comment(ticket_key, f"🔄 Kira SRE Recurring Diagnostic Check for {target_svc}:\nStatus: Unhealthy/Degraded\n\nLatest Root Cause Analysis:\n" + result.get("analysis", "")[:1500])
+                except Exception:
+                    pass
+            else:
+                summary = f"Outage detected on {target_svc} in namespace {os.getenv('K8S_NAMESPACE', 'kumarh5149-dev')}"
+                desc = f"Kira SRE autonomous probe detected failure on {target_svc}.\n\nRoot Cause Analysis:\n{result.get('analysis', '')[:1200]}"
+                try:
+                    jira_res = create_jira_incident(
+                        summary=summary,
+                        description=desc,
+                        service_name=target_svc,
+                        priority="High"
+                    )
+                    if jira_res.get("success"):
+                        jira_ticket = jira_res
+                        ticket_key = jira_res.get("key")
+                        delegation_trace.append(f"Opened new Jira Incident: {ticket_key}")
+                        try:
+                            add_jira_comment(ticket_key, f"🔍 Kira SRE Root Cause Analysis for {target_svc}:\n" + result.get("analysis", "")[:2000])
+                        except Exception:
+                            pass
+                except Exception as e:
+                    delegation_trace.append(f"Jira bridge notice: {e}")
+
+            # Re-use existing pending proposal for target_svc if one already exists
+            pending = get_pending_proposals()
+            existing_prop = next((p for p in pending if p.get("target_service") == target_svc), None)
+
+            if existing_prop:
+                proposal = existing_prop
+                delegation_trace.append(f"Re-using pending remediation proposal: {proposal['id']}")
+            else:
+                # If pod is in CrashLoopBackOff, propose ROLLOUT_UNDO / Rollback; otherwise ROLLOUT_RESTART
+                has_crashloop = any(any(k in str(p.get("issue_type", "")).lower() for k in ["crash", "backoff", "terminated"]) for p in pod_issues)
+                action_type = "ROLLOUT_UNDO" if has_crashloop else "ROLLOUT_RESTART"
+                cmd = f"oc rollout undo deployment/{target_svc} -n {os.getenv('K8S_NAMESPACE', 'kumarh5149-dev')}" if action_type == "ROLLOUT_UNDO" else f"oc rollout restart deployment/{target_svc} -n {os.getenv('K8S_NAMESPACE', 'kumarh5149-dev')}"
+                reason = f"Kira SRE detected CrashLoopBackOff on {target_svc}. Proposing automated rollback / config revert." if has_crashloop else f"Kira SRE detected outage on {target_svc}. Self-healing restart and replica scaling proposal."
+                
+                ticket_key = jira_ticket.get("key") if jira_ticket else None
+                proposal = create_remediation_proposal(
+                    target_service=target_svc,
+                    action_type=action_type,
+                    reason=reason,
+                    command=cmd,
+                    tier=2,
+                    jira_issue_key=ticket_key
+                )
+                delegation_trace.append(f"Auto-staged Tier-2 Proposal: {proposal['id']} ({action_type})")
 
         reply = result["analysis"]
-        if jira_ticket:
-            reply += f"\n\n---\n### 🎫 AUTOMATED JIRA INCIDENT CREATED\n- **Incident Key:** [{jira_ticket['key']}]({jira_ticket['url']})\n- **Target Service:** `{unhealthy[0] if unhealthy else 'cluster'}`\n- **Status:** `Open / Investigating` 🚨\n- **Linked Remediation Proposal:** `{proposal['id']}` (Staged in Governance Inbox)\n\n> **Self-Healing Ready:** Authorize execution in the **Governance Inbox** to apply rollout restart and auto-resolve `{jira_ticket['key']}`."
+        if jira_ticket and is_existing_ticket:
+            reply += f"\n\n---\n### 🎫 EXISTING JIRA INCIDENT UPDATED (No Duplicate Created)\n- **Incident Key:** [{jira_ticket['key']}]({jira_ticket['url']})\n- **Target Service:** `{target_svc}`\n- **Status:** `Open / Investigating` 🚨\n- **Linked Remediation Proposal:** `{proposal['id'] if proposal else 'None'}` (Staged in Governance Inbox)\n\n> **Notice:** SRE diagnostic update & logs appended to existing ticket `{jira_ticket['key']}`. No duplicate ticket created."
+        elif jira_ticket:
+            reply += f"\n\n---\n### 🎫 AUTOMATED JIRA INCIDENT CREATED\n- **Incident Key:** [{jira_ticket['key']}]({jira_ticket['url']})\n- **Target Service:** `{target_svc}`\n- **Status:** `Open / Investigating` 🚨\n- **Linked Remediation Proposal:** `{proposal['id'] if proposal else 'None'}` (Staged in Governance Inbox)\n\n> **Self-Healing Ready:** Authorize execution in the **Governance Inbox** to apply self-healing and auto-resolve `{jira_ticket['key']}`."
         elif proposal:
             reply += f"\n\n---\n### 🛠️ AUTOMATED REMEDIATION PROPOSAL STAGED\n- **Proposal ID:** `{proposal['id']}`\n- **Target Action:** `{proposal['command']}`\n- **Governance:** Tier-2 (Awaiting Operator Approval in Governance Inbox)"
 
@@ -312,14 +342,12 @@ Kira SRE and Operator have been linked to this ticket for root-cause tracking.""
             else:
                 service = "billing-service"
 
-        # Check for open Jira ticket to link
+        # Check for open Jira ticket to link (Idempotent!)
         jira_issue_key = None
         try:
-            open_tickets = list_open_jira_tickets(limit=10)
-            for t in open_tickets:
-                if service in t.get("summary", "").lower() or service in str(t.get("labels", [])).lower():
-                    jira_issue_key = t.get("key")
-                    break
+            active_ticket = get_active_jira_incident_for_service(service)
+            if active_ticket:
+                jira_issue_key = active_ticket.get("key")
         except Exception:
             pass
 
