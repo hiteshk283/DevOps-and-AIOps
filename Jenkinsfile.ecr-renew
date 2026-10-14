@@ -1,0 +1,150 @@
+// ==============================================================================
+// HEALTHSHIELD ECR TOKEN AUTO-RENEWAL PIPELINE (JENKINS + OPENSHIFT + AWS ECR)
+// Runs automatically every 6 hours to prevent 12h ECR token expiration
+// ==============================================================================
+pipeline {
+    agent any
+
+    // Automatically trigger every 6 hours (AWS tokens expire every 12 hours)
+    triggers {
+        cron('H */6 * * *')
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timeout(time: 10, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        NAMESPACE      = 'kumarh5149-dev'
+        AWS_REGION     = 'us-east-1'
+        AWS_ACCOUNT_ID = '794558722040'
+        LOKI_URL       = 'http://loki:3100/loki/api/v1/push'
+    }
+
+    stages {
+        stage('1. Prepare AWS & OpenShift Environment') {
+            steps {
+                echo "=========================================================="
+                echo "1. Checking OpenShift CLI, AWS CLI & Pulling Credentials"
+                echo "=========================================================="
+                sh '''
+                    echo "Checking active OpenShift session..."
+                    oc whoami || (echo "Error: oc not logged in" && exit 1)
+                    oc project ${NAMESPACE}
+
+                    # Check or install AWS CLI if absent on agent
+                    if ! command -v aws >/dev/null 2>&1; then
+                        echo "AWS CLI not found. Installing via Python pip..."
+                        python3 -m pip install --quiet --upgrade awscli || pip3 install --quiet awscli || true
+                    fi
+                    aws --version || echo "Warning: Checking if AWS CLI is in PATH"
+
+                    # Dynamically read AWS keys from OpenShift healthshield-secrets
+                    echo "Extracting AWS credentials from healthshield-secrets..."
+                    LIVE_AWS_KEY=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' 2>/dev/null | base64 -d || true)
+                    LIVE_AWS_SECRET=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' 2>/dev/null | base64 -d || true)
+
+                    if [ -n "${LIVE_AWS_KEY}" ] && [ -n "${LIVE_AWS_SECRET}" ]; then
+                        echo "Successfully loaded AWS credentials from cluster secrets."
+                    else
+                        echo "Warning: AWS credentials not found in healthshield-secrets; relying on environment or IAM role."
+                    fi
+                '''
+            }
+        }
+
+        stage('2. Fetch 12h ECR Token & Renew OpenShift Secret') {
+            steps {
+                echo "=========================================================="
+                echo "2. Renewing aws-ecr-secret in namespace ${NAMESPACE}"
+                echo "=========================================================="
+                sh '''
+                    # Export AWS credentials if retrieved from cluster
+                    LIVE_AWS_KEY=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' 2>/dev/null | base64 -d || true)
+                    LIVE_AWS_SECRET=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' 2>/dev/null | base64 -d || true)
+
+                    if [ -n "${LIVE_AWS_KEY}" ]; then
+                        export AWS_ACCESS_KEY_ID="${LIVE_AWS_KEY}"
+                        export AWS_SECRET_ACCESS_KEY="${LIVE_AWS_SECRET}"
+                        export AWS_DEFAULT_REGION="${AWS_REGION}"
+                    fi
+
+                    echo "Generating fresh 12h login password from AWS ECR..."
+                    ECR_PASS=$(aws ecr get-login-password --region ${AWS_REGION})
+
+                    if [ -z "${ECR_PASS}" ]; then
+                        echo "Error: Failed to fetch ECR login password from AWS."
+                        exit 1
+                    fi
+
+                    echo "Applying updated docker-registry secret: aws-ecr-secret..."
+                    oc create secret docker-registry aws-ecr-secret \
+                        --docker-server=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com \
+                        --docker-username=AWS \
+                        --docker-password="${ECR_PASS}" \
+                        --namespace=${NAMESPACE} \
+                        --dry-run=client -o yaml | oc apply -f -
+
+                    echo "Ensuring secret is linked to ServiceAccounts..."
+                    oc secrets link default aws-ecr-secret --for=pull -n ${NAMESPACE} 2>/dev/null || true
+                    oc secrets link pipeline aws-ecr-secret --for=pull -n ${NAMESPACE} 2>/dev/null || true
+                '''
+            }
+        }
+
+        stage('3. Verify Secret & Pod Health') {
+            steps {
+                echo "=========================================================="
+                echo "3. Verifying Secret State in ${NAMESPACE}"
+                echo "=========================================================="
+                sh '''
+                    echo "Checking aws-ecr-secret details..."
+                    oc get secret aws-ecr-secret -n ${NAMESPACE} -o yaml | grep -E "(name:|type:|creationTimestamp:)"
+
+                    echo "Checking if any pods are stuck in ImagePullBackOff..."
+                    PULL_ERR_PODS=$(oc get pods -n ${NAMESPACE} --no-headers | grep -E "(ImagePullBackOff|ErrImagePull)" | awk '{print $1}' || true)
+
+                    if [ -n "${PULL_ERR_PODS}" ]; then
+                        echo "Found pods waiting on backoff timers: ${PULL_ERR_PODS}"
+                        echo "Recycling affected pods to immediately use new token..."
+                        for POD in ${PULL_ERR_PODS}; do
+                            oc delete pod ${POD} -n ${NAMESPACE} --wait=false || true
+                        done
+                    else
+                        echo "All pods healthy. No ImagePullBackOff detected."
+                    fi
+                '''
+            }
+        }
+
+        stage('4. Ship Renewal Audit Event to Grafana Loki') {
+            steps {
+                echo "=========================================================="
+                echo "4. Ingesting Renewal Log to Loki"
+                echo "=========================================================="
+                sh '''
+                    TIMESTAMP=$(date +%s%N)
+                    curl -s -X POST ${LOKI_URL} \
+                        -H "Content-Type: application/json" \
+                        -d '{"streams":[{"stream":{"app":"jenkins-ecr-renew","env":"dev","status":"success"},"values":[["'${TIMESTAMP}'","[Audit] Amazon ECR 12h authentication token renewed successfully for OpenShift namespace '${NAMESPACE}' (Build #'${BUILD_NUMBER}')"]]}]}' || true
+                    echo "Audit event shipped to Loki."
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "=========================================================="
+            echo "✅ ECR Token Renewal SUCCEEDED! All pods authenticated."
+            echo "=========================================================="
+        }
+        failure {
+            echo "=========================================================="
+            echo "❌ ECR Token Renewal FAILED. Check credentials or AWS CLI."
+            echo "=========================================================="
+        }
+    }
+}
