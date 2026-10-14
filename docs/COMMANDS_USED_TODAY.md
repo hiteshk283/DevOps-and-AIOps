@@ -1417,17 +1417,3 @@ and found no differences, so no changes are needed.
 ```
 #### Explanation:
 Brings all 11 microservice ECR repositories into declarative Infrastructure-as-Code state management under `module.ecr.aws_ecr_repository.repos`. Attaches project tags (`Project = "HealthInsurance"`, `Terraform = "true"`), updates `infrastructure/variables.tf` and `infrastructure/terraform.tfvars`, and achieves complete zero-drift convergence with AWS.
-
----
-
-### Command 16.3: Automated Amazon ECR Token Renewal Pipeline (Jenkinsfile.ecr-renew)
-```groovy
-// Periodic Jenkins Pipeline scheduled every 6 hours via cron('H */6 * * *')
-// 1. Pulls live AWS credentials dynamically from OpenShift secret 'healthshield-secrets'
-// 2. Generates fresh 12h ECR authentication token: aws ecr get-login-password
-// 3. Recreates & updates docker-registry secret 'aws-ecr-secret' in kumarh5149-dev
-// 4. Recycles any pods waiting on ImagePullBackOff timers
-// 5. Ships renewal audit event to Grafana Loki
-```
-#### Explanation:
-Prevents pod failure caused by AWS ECR's 12-hour token lifespan (`denied: Your Authorization Token is invalid`). Runs fully hands-free on Jenkins inside OpenShift every 6 hours or on-demand, linking the renewed secret to both `default` and `pipeline` ServiceAccounts and auto-healing any pods experiencing backoff delays.
