@@ -77,6 +77,8 @@ spec:
                   key: DB_PASSWORD
             - name: KAFKA_BROKER
               value: "kafka:9092"
+            - name: KAFKA_BROKER_URL
+              value: "kafka:9092"
             - name: LOKI_PUSH_URL
               valueFrom:
                 secretKeyRef:

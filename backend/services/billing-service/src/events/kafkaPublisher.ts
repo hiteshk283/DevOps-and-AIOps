@@ -22,7 +22,7 @@ export interface PaymentCompletedEvent {
 }
 
 export const publishPaymentEvent = async (event: PaymentCompletedEvent): Promise<boolean> => {
-  const kafkaBroker = process.env.KAFKA_BROKER_URL;
+  const kafkaBroker = process.env.KAFKA_BROKER_URL || process.env.KAFKA_BROKER || 'kafka:9092';
   const s3Bucket = process.env.AWS_S3_KAFKA_BUCKET || 'healthshield-kafka-events-794558722040';
 
   console.log(`[Kafka Event Stream] -> Topic: payment.events | Event: ${event.eventType} | PaymentId: ${event.paymentId}`);
