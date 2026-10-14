@@ -1355,5 +1355,65 @@ FAULT INJECTION, DETECTION, REMEDIATION & VERIFICATION COMPLETED 100%!
 #### Explanation:
 Simulated a real-world production incident by inducing a complete outage on `claim-service` (0 replicas). Kira SRE correlated telemetry; a P1 incident ticket `OPS-57` was raised in Atlassian Jira Cloud; Remediation Operator generated Tier-2 safe proposal `PROP-27832E`; upon operator governance approval, the self-healing engine executed rollout recovery directly via the in-cluster Kubernetes API (HTTP 200); `claim-service` returned to healthy (4ms latency, HTTP 200); and Jira ticket `OPS-57` was marked `Resolved / Completed` with an attached verification note.
 
+---
 
+### Command 16.1: Provisioning Missing Amazon ECR Repositories via AWS CLI
+```bash
+# Provision the 5 missing microservice repositories in Amazon ECR
+aws ecr create-repository --repository-name hospital-service --region us-east-1 --image-scanning-configuration scanOnPush=true
+aws ecr create-repository --repository-name billing-service --region us-east-1 --image-scanning-configuration scanOnPush=true
+aws ecr create-repository --repository-name document-service --region us-east-1 --image-scanning-configuration scanOnPush=true
+aws ecr create-repository --repository-name support-service --region us-east-1 --image-scanning-configuration scanOnPush=true
+aws ecr create-repository --repository-name aiops-assistant --region us-east-1 --image-scanning-configuration scanOnPush=true
+```
+#### Output:
+```text
+Creating ECR repository: hospital-service... (arn:aws:ecr:us-east-1:794558722040:repository/hospital-service)
+Creating ECR repository: billing-service... (arn:aws:ecr:us-east-1:794558722040:repository/billing-service)
+Creating ECR repository: document-service... (arn:aws:ecr:us-east-1:794558722040:repository/document-service)
+Creating ECR repository: support-service... (arn:aws:ecr:us-east-1:794558722040:repository/support-service)
+Creating ECR repository: aiops-assistant... (arn:aws:ecr:us-east-1:794558722040:repository/aiops-assistant)
+```
+#### Explanation:
+Resolves the GitHub Actions CI push failure (`RepositoryDoesNotExistException`). While the initial Terraform deployment created the first 6 repositories (`auth`, `gateway`, `policy-service`, `claim-service`, `frontend`, `member-service`), the remaining 5 microservices in the matrix (`hospital-service`, `billing-service`, `document-service`, `support-service`, `aiops-assistant`) were absent from ECR.
 
+---
+
+### Command 16.2: Reconciling Terraform Drift via Resource Import & State Verification
+```bash
+cd infrastructure
+
+# 1. Import out-of-band ECR repositories into Terraform state to eliminate drift
+terraform import 'module.ecr.aws_ecr_repository.repos["hospital-service"]' hospital-service
+terraform import 'module.ecr.aws_ecr_repository.repos["billing-service"]' billing-service
+terraform import 'module.ecr.aws_ecr_repository.repos["document-service"]' document-service
+terraform import 'module.ecr.aws_ecr_repository.repos["support-service"]' support-service
+terraform import 'module.ecr.aws_ecr_repository.repos["aiops-assistant"]' aiops-assistant
+
+# 2. Synchronize standard tags and force_delete flags across imported resources
+terraform apply -auto-approve
+
+# 3. Confirm 0-drift status across all 11 ECR repositories and S3/IAM modules
+terraform plan
+```
+#### Output:
+```text
+module.ecr.aws_ecr_repository.repos["hospital-service"]: Importing from ID "hospital-service"...
+Import successful!
+module.ecr.aws_ecr_repository.repos["billing-service"]: Importing from ID "billing-service"...
+Import successful!
+module.ecr.aws_ecr_repository.repos["document-service"]: Importing from ID "document-service"...
+Import successful!
+module.ecr.aws_ecr_repository.repos["support-service"]: Importing from ID "support-service"...
+Import successful!
+module.ecr.aws_ecr_repository.repos["aiops-assistant"]: Importing from ID "aiops-assistant"...
+Import successful!
+
+Apply complete! Resources: 0 added, 5 changed, 0 destroyed.
+
+No changes. Your infrastructure matches the configuration.
+Terraform has compared your real infrastructure against your configuration
+and found no differences, so no changes are needed.
+```
+#### Explanation:
+Brings all 11 microservice ECR repositories into declarative Infrastructure-as-Code state management under `module.ecr.aws_ecr_repository.repos`. Attaches project tags (`Project = "HealthInsurance"`, `Terraform = "true"`), updates `infrastructure/variables.tf` and `infrastructure/terraform.tfvars`, and achieves complete zero-drift convergence with AWS.
