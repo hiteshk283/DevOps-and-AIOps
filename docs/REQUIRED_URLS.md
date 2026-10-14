@@ -4,7 +4,7 @@ This document aggregates all web consoles, cluster APIs, CI/CD routes, external 
 
 ---
 
-## 1. Web Consoles & Platforms
+## 1. Web Consoles & Platforms URLS
 
 | Platform | URL | Purpose / Notes |
 | :--- | :--- | :--- |

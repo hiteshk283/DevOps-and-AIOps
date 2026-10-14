@@ -99,6 +99,11 @@ variable "repositories" {
     "auth",
     "policy-service",
     "claim-service",
-    "member-service"
+    "member-service",
+    "hospital-service",
+    "billing-service",
+    "document-service",
+    "support-service",
+    "aiops-assistant"
   ]
 }
