@@ -113,9 +113,31 @@ helm uninstall healthshield --namespace kumarh5149-dev
 
 ---
 
-## 5. Jenkins Operations (Safe Stop & Resume)
+## 5. Jenkins Operations (Deploy, Safe Stop & Resume)
 
-To preserve OpenShift Developer Sandbox quotas (3 vCPUs, 30 GiB RAM):
+### Initial Provisioning (Persistent Storage)
+To provision Jenkins on a fresh OpenShift Developer Sandbox cluster backed by durable 1Gi EBS storage (`gp3`):
+
+```bash
+# 1. Clean up any invalid or unbound PVCs from expired clusters
+oc delete pvc www-jenkins-0 -n kumarh5149-dev --ignore-not-found=true
+
+# 2. Deploy Jenkins using the official OpenShift persistent template
+oc new-app jenkins-persistent \
+  --param MEMORY_LIMIT=1Gi \
+  --param VOLUME_CAPACITY=1Gi \
+  --param ENABLE_OAUTH=true \
+  -n kumarh5149-dev
+
+# 3. Wait for Jenkins rollout to complete
+oc rollout status dc/jenkins -n kumarh5149-dev
+
+# 4. Generate 1-year ServiceAccount token for CI/CD automation & webhooks
+oc create token jenkins --duration=8760h -n kumarh5149-dev
+```
+
+### Quota Management (Safe Stop & Resume)
+To preserve OpenShift Developer Sandbox compute quotas (3 vCPUs, 30 GiB RAM) when Jenkins is idle:
 
 ```bash
 # Safely stop Jenkins (frees compute while keeping all data on the 1Gi EBS PVC):
