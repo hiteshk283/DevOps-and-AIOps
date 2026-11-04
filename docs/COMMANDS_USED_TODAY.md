@@ -682,6 +682,61 @@ oc get routes -n kumarh5149-dev
 
 ---
 
+### Command 10.4: Provisioning Persistent Jenkins Orchestrator via OpenShift Template (`oc new-app`)
+```bash
+# 1. Clean up any invalid or unbound PVCs (if migrating from an expired sandbox)
+oc delete pvc www-jenkins-0 -n kumarh5149-dev --ignore-not-found=true
+
+# 2. Deploy Jenkins with persistent storage using OpenShift's official template
+oc new-app jenkins-persistent \
+  --param MEMORY_LIMIT=1Gi \
+  --param VOLUME_CAPACITY=1Gi \
+  --param ENABLE_OAUTH=true \
+  -n kumarh5149-dev
+
+# 3. Wait for Jenkins DeploymentConfig rollout to complete
+oc rollout status dc/jenkins -n kumarh5149-dev
+
+# 4. Verify Jenkins pod, service, route, and persistent volume claim
+oc get pods,svc,routes,pvc -l app=jenkins-persistent -n kumarh5149-dev
+```
+#### Output:
+```text
+--> Deploying template "openshift/jenkins-persistent" for "jenkins-persistent" to project kumarh5149-dev
+
+     Jenkins (Persistent)
+     ---------
+     Jenkins service, with persistent storage.
+
+     * With character set: UTF-8
+     * An OAuth client has been created for your Jenkins instance.
+     * The volume will be mounted at /var/lib/jenkins
+
+--> Creating resources ...
+    route.route.openshift.io "jenkins" created
+    persistentvolumeclaim "jenkins" created
+    serviceaccount "jenkins" created
+    rolebinding.rbac.authorization.k8s.io "jenkins_edit" created
+    service "jenkins-jnlp" created
+    service "jenkins" created
+    deploymentconfig.apps.openshift.io "jenkins" created
+--> Success
+replication controller "jenkins-1" successfully rolled out
+NAME                  READY   STATUS    RESTARTS   AGE
+pod/jenkins-1-5tzlc   1/1     Running   0          2m
+NAME                  TYPE        CLUSTER-IP      PORT(S)     AGE
+service/jenkins       ClusterIP   172.30.212.92   80/TCP      2m
+service/jenkins-jnlp  ClusterIP   172.30.134.11   50000/TCP   2m
+NAME                  HOST/PORT                                                   SERVICES   PORT
+route.route.openshift.io/jenkins   jenkins-kumarh5149-dev.apps.rm1.0a51.p1.openshiftapps.com   jenkins    <all>
+NAME                  STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS
+pvc/jenkins           Bound    pvc-2df48941-27e9-49a6-82c9-a35757dab546   1Gi        RWO            gp3
+```
+#### Explanation:
+Instantiates Red Hat OpenShift's official Jenkins CI/CD master inside `kumarh5149-dev` with integrated OAuth authentication, EBS-backed 1Gi storage (`gp3`), internal JNLP agent tunnel on port `50000`, and a public edge HTTPS route. This provides the continuous delivery engine for executing Helm deployment pipelines, Amazon ECR token renewal jobs, and Jira release automation.
+
+---
+
 ## 11. AWS CLI & Terraform Infrastructure Teardown ($0 Cost Management)
 
 ### Command 11.1: Complete Teardown of AWS Resources ($0 Monthly Cost)
