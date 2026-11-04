@@ -18,6 +18,7 @@ pipeline {
         TARGET_ENV     = "${params.TARGET_ENV ?: 'dev'}"
         AWS_REGION     = 'us-east-1'
         AWS_ACCOUNT_ID = '794558722040'
+        PATH           = "/var/lib/jenkins/.local/bin:${env.PATH}"
     }
 
     stages {
@@ -49,8 +50,16 @@ pipeline {
             steps {
                 echo "Verifying and refreshing OpenShift aws-ecr-secret..."
                 sh '''
+                    export PATH="$HOME/.local/bin:$PATH"
                     if command -v aws >/dev/null 2>&1; then
                         echo "AWS CLI found. Refreshing 12h ECR token..."
+                        LIVE_AWS_KEY=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' 2>/dev/null | base64 -d || true)
+                        LIVE_AWS_SECRET=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' 2>/dev/null | base64 -d || true)
+                        if [ -n "${LIVE_AWS_KEY}" ] && [ -n "${LIVE_AWS_SECRET}" ]; then
+                            export AWS_ACCESS_KEY_ID="${LIVE_AWS_KEY}"
+                            export AWS_SECRET_ACCESS_KEY="${LIVE_AWS_SECRET}"
+                            export AWS_DEFAULT_REGION="${AWS_REGION}"
+                        fi
                         ECR_PASS=$(aws ecr get-login-password --region ${AWS_REGION})
                         oc create secret docker-registry aws-ecr-secret \
                             --docker-server=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com \
