@@ -21,6 +21,7 @@ pipeline {
         AWS_REGION     = 'us-east-1'
         AWS_ACCOUNT_ID = '794558722040'
         LOKI_URL       = 'http://loki:3100/loki/api/v1/push'
+        PATH           = "/var/lib/jenkins/.local/bin:${env.PATH}"
     }
 
     stages {
@@ -30,16 +31,17 @@ pipeline {
                 echo "1. Checking OpenShift CLI, AWS CLI & Pulling Credentials"
                 echo "=========================================================="
                 sh '''
+                    export PATH="$HOME/.local/bin:$PATH"
                     echo "Checking active OpenShift session..."
                     oc whoami || (echo "Error: oc not logged in" && exit 1)
                     oc project ${NAMESPACE}
 
                     # Check or install AWS CLI if absent on agent
                     if ! command -v aws >/dev/null 2>&1; then
-                        echo "AWS CLI not found. Installing via Python pip..."
-                        python3 -m pip install --quiet --upgrade awscli || pip3 install --quiet awscli || true
+                        echo "AWS CLI not found. Installing via Python pip into user home directory..."
+                        python3 -m pip install --user --quiet awscli || pip3 install --user --quiet awscli || true
                     fi
-                    aws --version || echo "Warning: Checking if AWS CLI is in PATH"
+                    aws --version || (echo "Error: AWS CLI is not available in PATH" && exit 1)
 
                     # Dynamically read AWS keys from OpenShift healthshield-secrets
                     echo "Extracting AWS credentials from healthshield-secrets..."
@@ -61,6 +63,7 @@ pipeline {
                 echo "2. Renewing aws-ecr-secret in namespace ${NAMESPACE}"
                 echo "=========================================================="
                 sh '''
+                    export PATH="$HOME/.local/bin:$PATH"
                     # Export AWS credentials if retrieved from cluster
                     LIVE_AWS_KEY=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' 2>/dev/null | base64 -d || true)
                     LIVE_AWS_SECRET=$(oc get secret healthshield-secrets -n ${NAMESPACE} -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' 2>/dev/null | base64 -d || true)
